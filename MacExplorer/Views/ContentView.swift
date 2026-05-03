@@ -23,10 +23,10 @@ struct ContentView: View {
                     Divider()
 
                     if appState.showPreview {
-                        VSplitView {
+                        HSplitView {
                             FileListView(tab: tab)
                             PreviewPane(tab: tab)
-                                .frame(minHeight: 120, idealHeight: 200)
+                                .frame(minWidth: 200, idealWidth: 280, maxWidth: 450)
                         }
                     } else {
                         FileListView(tab: tab)

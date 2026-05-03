@@ -16,6 +16,11 @@ struct SidebarView: View {
                 ForEach(appState.fileService.sidebarLocations, id: \.url) { location in
                     Label(location.name, systemImage: location.icon)
                         .tag(location.url)
+                        .contextMenu {
+                            Button("Open in New Tab") {
+                                appState.addTab(path: location.url)
+                            }
+                        }
                 }
             }
 
@@ -23,6 +28,11 @@ struct SidebarView: View {
                 ForEach(appState.fileService.volumes, id: \.self) { volume in
                     Label(volume.lastPathComponent, systemImage: "externaldrive")
                         .tag(volume)
+                        .contextMenu {
+                            Button("Open in New Tab") {
+                                appState.addTab(path: volume)
+                            }
+                        }
                 }
             }
 
@@ -57,6 +67,11 @@ struct FolderTreeNode: View {
                     .onTapGesture {
                         appState.navigate(to: url)
                     }
+                    .contextMenu {
+                        Button("Open in New Tab") {
+                            appState.addTab(path: url)
+                        }
+                    }
             }
             .onAppear {
                 loadChildrenIfNeeded()
@@ -66,6 +81,11 @@ struct FolderTreeNode: View {
                 .tag(url)
                 .onTapGesture {
                     appState.navigate(to: url)
+                }
+                .contextMenu {
+                    Button("Open in New Tab") {
+                        appState.addTab(path: url)
+                    }
                 }
         }
     }

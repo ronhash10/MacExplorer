@@ -53,9 +53,9 @@ struct FileListView: View {
                     }
             }
         }
-        .onDoubleClick {
+        .background(DoubleClickHandler {
             handleDoubleClick()
-        }
+        })
         .onChange(of: tab.currentPath) {
             appState.refreshCurrentTab()
         }
@@ -67,9 +67,13 @@ struct FileListView: View {
         return tab.items.filter { $0.name.lowercased().contains(query) }
     }
 
+    private var selectedFileItems: [FileItem] {
+        tab.items.filter { tab.selectedItems.contains($0.id) }
+    }
+
     private func handleDoubleClick() {
-        guard let selectedID = tab.selectedItems.first,
-              let item = tab.items.first(where: { $0.id == selectedID }) else { return }
+        let selected = selectedFileItems
+        guard selected.count == 1, let item = selected.first else { return }
 
         if item.isDirectory {
             appState.navigate(to: item.url)
@@ -80,47 +84,105 @@ struct FileListView: View {
 
     @ViewBuilder
     private func fileContextMenu(for item: FileItem) -> some View {
-        Button("Open") {
-            if item.isDirectory {
-                appState.navigate(to: item.url)
-            } else {
-                NSWorkspace.shared.open(item.url)
-            }
-        }
+        // Use the full selection if the right-clicked item is part of it,
+        // otherwise treat it as a single-item action.
+        let items = tab.selectedItems.contains(item.id) ? selectedFileItems : [item]
+        let isSingle = items.count == 1
+        let allDirectories = items.allSatisfy(\.isDirectory)
 
-        Button("Open in New Tab") {
-            if item.isDirectory {
+        if isSingle {
+            Button("Open") {
+                if item.isDirectory {
+                    appState.navigate(to: item.url)
+                } else {
+                    NSWorkspace.shared.open(item.url)
+                }
+            }
+
+            Button("Open in New Tab") {
                 appState.addTab(path: item.url)
             }
+            .disabled(!item.isDirectory)
+        } else {
+            Button("Open All (\(items.count) items)") {
+                for f in items {
+                    if f.isDirectory {
+                        appState.addTab(path: f.url)
+                    } else {
+                        NSWorkspace.shared.open(f.url)
+                    }
+                }
+            }
         }
-        .disabled(!item.isDirectory)
 
         Divider()
 
         Button("Show in Finder") {
-            NSWorkspace.shared.activateFileViewerSelecting([item.url])
+            NSWorkspace.shared.activateFileViewerSelecting(items.map(\.url))
         }
 
         Divider()
 
-        Button("Move to Trash", role: .destructive) {
-            try? appState.fileService.moveToTrash(item.url)
+        Button("Move to Trash (\(items.count) item\(items.count == 1 ? "" : "s"))", role: .destructive) {
+            for f in items {
+                try? appState.fileService.moveToTrash(f.url)
+            }
             appState.refreshCurrentTab()
         }
     }
 }
 
-// Double-click support for SwiftUI Table via NSView introspection.
-struct OnDoubleClickModifier: ViewModifier {
+/// Finds the enclosing NSTableView and installs a doubleAction handler.
+struct DoubleClickHandler: NSViewRepresentable {
     let action: () -> Void
 
-    func body(content: Content) -> some View {
-        content.onTapGesture(count: 2, perform: action)
+    func makeNSView(context: Context) -> NSView {
+        let view = DoubleClickListenerView()
+        view.onDoubleClick = action
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        (nsView as? DoubleClickListenerView)?.onDoubleClick = action
     }
 }
 
-extension View {
-    func onDoubleClick(perform action: @escaping () -> Void) -> some View {
-        modifier(OnDoubleClickModifier(action: action))
+private class DoubleClickListenerView: NSView {
+    var onDoubleClick: (() -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // Walk up the view hierarchy to find the NSTableView and set its doubleAction
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if let tableView = self.findTableView(in: self) {
+                tableView.target = self
+                tableView.doubleAction = #selector(self.handleDoubleClick)
+            }
+        }
+    }
+
+    private func findTableView(in view: NSView) -> NSTableView? {
+        // Search up through superviews
+        var current: NSView? = view
+        while let v = current {
+            if let table = v as? NSTableView { return table }
+            // Also search siblings/children of ancestors
+            if let found = v.subviewsRecursive().first(where: { $0 is NSTableView }) as? NSTableView {
+                return found
+            }
+            current = v.superview
+        }
+        return nil
+    }
+
+    @objc private func handleDoubleClick() {
+        onDoubleClick?()
+    }
+}
+
+private extension NSView {
+    func subviewsRecursive() -> [NSView] {
+        subviews + subviews.flatMap { $0.subviewsRecursive() }
     }
 }

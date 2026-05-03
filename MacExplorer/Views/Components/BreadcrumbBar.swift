@@ -34,8 +34,8 @@ struct BreadcrumbBar: View {
                 HStack(spacing: 2) {
                     ForEach(Array(tab.pathComponents.enumerated()), id: \.offset) { index, component in
                         if index > 0 {
-                            Image(systemName: "chevron.right")
-                                .font(.caption2)
+                            Image(systemName: "arrowtriangle.right.fill")
+                                .font(.system(size: 6))
                                 .foregroundStyle(.tertiary)
                         }
 
