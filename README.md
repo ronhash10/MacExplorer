@@ -1,0 +1,153 @@
+# MacExplorer
+
+A Windows-style file explorer for macOS. If you've always preferred the PC's File Explorer over Finder, MacExplorer brings that familiar experience to your Mac — built natively with SwiftUI.
+
+![macOS 14+](https://img.shields.io/badge/macOS-14%2B-blue)
+![Swift 5.9](https://img.shields.io/badge/Swift-5.9-orange)
+![License](https://img.shields.io/badge/license-MIT-green)
+
+## Features
+
+### 🗂️ Folder Tree Sidebar
+- Expandable folder tree on the left with lazy-loading directories
+- Quick-access favorites: Home, Desktop, Documents, Downloads, Applications
+- Mounted volumes section
+- Right-click any folder to **open in a new tab**
+
+### 📋 File List
+- Sortable table with columns: **Name**, **Size**, **Date Modified**, **Kind**
+- File type icons from the system
+- Single and multi-select support
+- Double-click a folder to navigate into it
+- Double-click a file to open it with the default app
+
+### 🔀 Breadcrumb Navigation
+- Clickable path components at the top to jump to any parent directory
+- Back / Forward buttons with full history
+- Small triangle separators for a clean look
+
+### 📑 Tabs
+- Open multiple folders in tabs within a single window — no separate windows
+- Each tab has its own independent navigation history
+- Add, close, and switch tabs
+- Right-click sidebar folders to open in a new tab
+
+### 👁️ Preview Pane
+- Toggleable preview panel on the right side
+- **QuickLook** integration for images, PDFs, videos, documents, and more
+- File metadata display: name, kind, size, modified date, full path
+- Multi-selection shows item count, file/folder breakdown, and total size
+
+### ⌨️ Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `⌘T` | New tab |
+| `⌘W` | Close tab |
+| `⌘[` | Navigate back |
+| `⌘]` | Navigate forward |
+| `⌘⇧P` | Toggle preview pane |
+
+### 📁 File Operations
+- **Open** files and folders from context menu
+- **Open in New Tab** for folders
+- **Show in Finder** to reveal in native Finder
+- **Move to Trash** — works with multiple selected files
+- All context menu actions respect multi-selection
+
+### 🔍 Search
+- Filter current directory contents by name in real time
+
+### 📊 Status Bar
+- Bottom bar showing total item count, selection count, and total file size
+
+## Installation
+
+### Homebrew (Recommended)
+
+```bash
+brew tap ronhash10/macexplorer https://github.com/ronhash10/MacExplorer
+brew install --cask macexplorer
+```
+
+### DMG Download
+
+1. Go to [Releases](https://github.com/ronhash10/MacExplorer/releases)
+2. Download `MacExplorer-x.x.x.dmg`
+3. Open the DMG and drag **MacExplorer** to **Applications**
+
+### Build from Source
+
+Requires Xcode 15+ and macOS 14 (Sonoma) or later.
+
+```bash
+git clone https://github.com/ronhash10/MacExplorer.git
+cd MacExplorer
+./run.sh
+```
+
+## Setup
+
+### Full Disk Access
+
+On first launch, MacExplorer will prompt you to grant **Full Disk Access** so it can browse all directories without repeated permission dialogs.
+
+1. The app will offer to open **System Settings** for you
+2. In **Privacy & Security → Full Disk Access**, click the **+** button
+3. Select **MacExplorer.app** from the Finder window that opens
+4. Restart MacExplorer
+
+### Settings
+
+Open **MacExplorer → Settings** (or `⌘,`) to configure:
+- **Show Hidden Files** — toggle visibility of dotfiles and hidden folders
+- **Show Preview Pane** — toggle the right-side preview panel
+
+## Development
+
+### Project Structure
+
+```
+MacExplorer/
+├── MacExplorerApp.swift          # App entry point, commands, FDA check
+├── Models/
+│   ├── AppState.swift            # Global state: tabs, preferences
+│   ├── FileItem.swift            # File/folder data model
+│   └── TabState.swift            # Per-tab navigation state
+├── Services/
+│   └── FileSystemService.swift   # FileManager wrapper
+├── Views/
+│   ├── ContentView.swift         # Main layout (sidebar + content)
+│   ├── SidebarView.swift         # Folder tree sidebar
+│   ├── SettingsView.swift        # Preferences window
+│   └── Components/
+│       ├── BreadcrumbBar.swift   # Path breadcrumb navigation
+│       ├── FileListView.swift    # Sortable file table
+│       ├── PreviewPane.swift     # QuickLook + file info
+│       ├── StatusBar.swift       # Bottom status bar
+│       └── TabBarView.swift      # Tab bar
+├── Package.swift
+├── run.sh                        # Build, sign & launch (dev)
+├── build-dmg.sh                  # Build release DMG
+└── release.sh                    # Publish GitHub release
+```
+
+### Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `./run.sh` | Build debug, code-sign, and launch the app |
+| `./build-dmg.sh [version]` | Build release binary and create a DMG |
+| `./release.sh [version]` | Build DMG, create GitHub release, update Homebrew cask |
+
+## Tech Stack
+
+- **SwiftUI** with `@Observable` (Observation framework)
+- **macOS 14+** (Sonoma)
+- **QuickLook** (`QLPreviewView`) for file previews
+- **NSTableView** introspection for double-click handling
+- **Ad-hoc code signing** with entitlements for filesystem access
+
+## License
+
+MIT
