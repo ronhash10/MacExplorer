@@ -180,6 +180,19 @@ struct ExplorerWindow: View {
 
 /// Handles folder open events from macOS.
 class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Set the app icon for the Dock — find it relative to the executable in the .app bundle
+        let execURL = URL(fileURLWithPath: ProcessInfo.processInfo.arguments[0])
+        let resourcesURL = execURL
+            .deletingLastPathComponent()  // Contents/MacOS
+            .deletingLastPathComponent()  // Contents
+            .appendingPathComponent("Resources")
+            .appendingPathComponent("AppIcon.icns")
+        if let icon = NSImage(contentsOf: resourcesURL) {
+            NSApp.applicationIconImage = icon
+        }
+    }
+
     func application(_ application: NSApplication, open urls: [URL]) {
         // Open folders in the key window's state, or the first available window
         let targetState = WindowManager.shared.windowStates.values.first
