@@ -21,6 +21,7 @@ mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
 
 cp .build/arm64-apple-macosx/release/${APP_NAME} "$APP_DIR/Contents/MacOS/${APP_NAME}"
+cp MacExplorer/Resources/AppIcon.icns "$APP_DIR/Contents/Resources/AppIcon.icns" 2>/dev/null || true
 
 # Info.plist with version
 cat > "$APP_DIR/Contents/Info.plist" << EOF

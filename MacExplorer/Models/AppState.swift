@@ -7,8 +7,15 @@ final class AppState {
     let windowID = UUID()
     var tabs: [TabState] = []
     var activeTabID: UUID?
-    var showPreview: Bool = true
-    var showHiddenFiles: Bool = false
+    var showPreview: Bool = UserDefaults.standard.object(forKey: "showPreview") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showPreview, forKey: "showPreview") }
+    }
+    var showHiddenFiles: Bool = UserDefaults.standard.bool(forKey: "showHiddenFiles") {
+        didSet {
+            UserDefaults.standard.set(showHiddenFiles, forKey: "showHiddenFiles")
+            refreshCurrentTab()
+        }
+    }
     var searchQuery: String = ""
     var shouldClose: Bool = false
     /// Set by sidebar to request the file list start renaming a newly created folder by name

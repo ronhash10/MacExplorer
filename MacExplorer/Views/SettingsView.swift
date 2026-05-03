@@ -2,22 +2,19 @@ import SwiftUI
 
 /// App preferences / settings view.
 struct SettingsView: View {
-    @Environment(AppState.self) private var appState
+    @AppStorage("showHiddenFiles") private var showHiddenFiles = false
+    @AppStorage("showPreview") private var showPreview = true
 
     var body: some View {
         Form {
-            Toggle("Show Hidden Files", isOn: Binding(
-                get: { appState.showHiddenFiles },
-                set: {
-                    appState.showHiddenFiles = $0
-                    appState.refreshCurrentTab()
+            Toggle("Show Hidden Files", isOn: $showHiddenFiles)
+                .onChange(of: showHiddenFiles) {
+                    NotificationCenter.default.post(name: .settingsChanged, object: nil)
                 }
-            ))
-
-            Toggle("Show Preview Pane", isOn: Binding(
-                get: { appState.showPreview },
-                set: { appState.showPreview = $0 }
-            ))
+            Toggle("Show Preview Pane", isOn: $showPreview)
+                .onChange(of: showPreview) {
+                    NotificationCenter.default.post(name: .settingsChanged, object: nil)
+                }
         }
         .formStyle(.grouped)
         .frame(width: 350, height: 150)

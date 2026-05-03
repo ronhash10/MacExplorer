@@ -13,6 +13,7 @@ echo "Deploying to /Applications..."
 mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
 cp .build/arm64-apple-macosx/debug/MacExplorer "$APP_DIR/Contents/MacOS/MacExplorer"
+cp MacExplorer/Resources/AppIcon.icns "$APP_DIR/Contents/Resources/AppIcon.icns" 2>/dev/null || true
 
 # Write Info.plist (only if missing or needs update)
 cat > "$APP_DIR/Contents/Info.plist" << 'EOF'

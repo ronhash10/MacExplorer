@@ -61,6 +61,7 @@ extension Notification.Name {
     static let navigateBack = Notification.Name("MacExplorer.navigateBack")
     static let navigateForward = Notification.Name("MacExplorer.navigateForward")
     static let moveToTrash = Notification.Name("MacExplorer.moveToTrash")
+    static let settingsChanged = Notification.Name("MacExplorer.settingsChanged")
 }
 
 /// Each window gets its own AppState, registered with the global WindowManager.
@@ -120,6 +121,10 @@ struct ExplorerWindow: View {
                         appState.refreshCurrentTab()
                     }
                 }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .settingsChanged)) { _ in
+                appState.showPreview = UserDefaults.standard.object(forKey: "showPreview") as? Bool ?? true
+                appState.showHiddenFiles = UserDefaults.standard.bool(forKey: "showHiddenFiles")
             }
             .alert("Full Disk Access Required", isPresented: $showFullDiskAccessAlert) {
                 Button("Open System Settings") {
