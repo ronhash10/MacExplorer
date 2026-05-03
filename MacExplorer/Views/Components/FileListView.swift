@@ -80,12 +80,14 @@ struct FileListView: View {
             Section {
                 ForEach(filteredFolders) { item in
                     TableRow(item)
+                        .draggable(item)
                         .contextMenu { fileContextMenu(for: item) }
                 }
             }
             Section {
                 ForEach(filteredFiles) { item in
                     TableRow(item)
+                        .draggable(item)
                         .contextMenu { fileContextMenu(for: item) }
                 }
             }

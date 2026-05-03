@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 /// Represents a single file or directory entry.
 @Observable
-final class FileItem: Identifiable, Hashable {
+final class FileItem: Identifiable, Hashable, Transferable {
     let id: String
     let name: String
     let url: URL
@@ -13,6 +13,12 @@ final class FileItem: Identifiable, Hashable {
     let dateModified: Date
     let kind: String
     let icon: NSImage
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(exportedContentType: .fileURL) { item in
+            SentTransferredFile(item.url)
+        }
+    }
 
     init(url: URL) {
         self.url = url
