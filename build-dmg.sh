@@ -50,13 +50,28 @@ cat > "$APP_DIR/Contents/Info.plist" << EOF
     <string>public.app-category.utilities</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Folder</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>public.folder</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>
 EOF
 
 # 3. Code sign
 echo "Code signing..."
-codesign --force --sign - --entitlements "$ENTITLEMENTS" "$APP_DIR"
+codesign --force --sign "MacExplorer Dev" --entitlements "$ENTITLEMENTS" "$APP_DIR"
 
 # 4. Create DMG
 echo "Creating DMG..."

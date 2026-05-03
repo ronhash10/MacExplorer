@@ -88,7 +88,6 @@ struct FileListView: View {
         // otherwise treat it as a single-item action.
         let items = tab.selectedItems.contains(item.id) ? selectedFileItems : [item]
         let isSingle = items.count == 1
-        let allDirectories = items.allSatisfy(\.isDirectory)
 
         if isSingle {
             Button("Open") {

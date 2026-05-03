@@ -4,11 +4,13 @@ import SwiftUI
 /// Top-level application state managing tabs and global preferences.
 @Observable
 final class AppState {
+    let windowID = UUID()
     var tabs: [TabState] = []
     var activeTabID: UUID?
     var showPreview: Bool = true
     var showHiddenFiles: Bool = false
     var searchQuery: String = ""
+    var shouldClose: Bool = false
 
     let fileService = FileSystemService()
 
