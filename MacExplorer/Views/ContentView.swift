@@ -26,7 +26,7 @@ struct ContentView: View {
                         HSplitView {
                             FileListView(tab: tab)
                             PreviewPane(tab: tab)
-                                .frame(minWidth: 200, idealWidth: 280, maxWidth: 450)
+                                .frame(minWidth: 200, idealWidth: 400, maxWidth: 900)
                         }
                     } else {
                         FileListView(tab: tab)

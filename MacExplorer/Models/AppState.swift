@@ -11,6 +11,8 @@ final class AppState {
     var showHiddenFiles: Bool = false
     var searchQuery: String = ""
     var shouldClose: Bool = false
+    /// Set by sidebar to request the file list start renaming a newly created folder by name
+    var pendingRenameFolder: String?
 
     let fileService = FileSystemService()
 

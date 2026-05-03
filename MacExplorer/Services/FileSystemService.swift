@@ -43,6 +43,12 @@ final class FileSystemService {
         try fileManager.trashItem(at: url, resultingItemURL: nil)
     }
 
+    /// Check if a directory contains any items.
+    func isDirectoryEmpty(_ url: URL) -> Bool {
+        let contents = try? fileManager.contentsOfDirectory(atPath: url.path)
+        return contents?.isEmpty ?? true
+    }
+
     /// Create a new folder at the given URL.
     func createFolder(at url: URL, name: String) throws -> URL {
         let folderURL = url.appendingPathComponent(name)

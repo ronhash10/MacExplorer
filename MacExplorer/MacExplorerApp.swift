@@ -39,6 +39,11 @@ struct MacExplorerApp: App {
                     NotificationCenter.default.post(name: .navigateForward, object: nil)
                 }
                 .keyboardShortcut("]", modifiers: .command)
+
+                Button("Move to Trash") {
+                    NotificationCenter.default.post(name: .moveToTrash, object: nil)
+                }
+                .keyboardShortcut(.delete, modifiers: .command)
             }
         }
 
@@ -55,6 +60,7 @@ extension Notification.Name {
     static let togglePreview = Notification.Name("MacExplorer.togglePreview")
     static let navigateBack = Notification.Name("MacExplorer.navigateBack")
     static let navigateForward = Notification.Name("MacExplorer.navigateForward")
+    static let moveToTrash = Notification.Name("MacExplorer.moveToTrash")
 }
 
 /// Each window gets its own AppState, registered with the global WindowManager.
@@ -104,6 +110,15 @@ struct ExplorerWindow: View {
                 if NSApp.keyWindow == findMyWindow() {
                     appState.currentTab?.goForward()
                     appState.refreshCurrentTab()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .moveToTrash)) { _ in
+                if NSApp.keyWindow == findMyWindow(), let tab = appState.currentTab {
+                    let items = tab.items.filter { tab.selectedItems.contains($0.id) }
+                    guard !items.isEmpty else { return }
+                    TrashHelper.moveToTrash(items.map(\.url), using: appState.fileService) {
+                        appState.refreshCurrentTab()
+                    }
                 }
             }
             .alert("Full Disk Access Required", isPresented: $showFullDiskAccessAlert) {

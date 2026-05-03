@@ -1,9 +1,26 @@
 import SwiftUI
 
-/// Sortable table view displaying directory contents.
+/// Sortable table view displaying directory contents with folders always on top.
 struct FileListView: View {
     @Environment(AppState.self) private var appState
     @Bindable var tab: TabState
+    @State private var renamingItemID: String?
+    @State private var renamingText: String = ""
+    @State private var scrollToID: String?
+
+    private var filteredFolders: [FileItem] {
+        let query = appState.searchQuery.lowercased()
+        let folders = tab.items.filter(\.isDirectory)
+        guard !query.isEmpty else { return folders }
+        return folders.filter { $0.name.lowercased().contains(query) }
+    }
+
+    private var filteredFiles: [FileItem] {
+        let query = appState.searchQuery.lowercased()
+        let files = tab.items.filter { !$0.isDirectory }
+        guard !query.isEmpty else { return files }
+        return files.filter { $0.name.lowercased().contains(query) }
+    }
 
     var body: some View {
         Table(of: FileItem.self, selection: Binding(
@@ -13,7 +30,7 @@ struct FileListView: View {
             get: { tab.sortOrder },
             set: { newOrder in
                 tab.sortOrder = newOrder
-                tab.items.sort(using: newOrder)
+                sortItems()
             }
         )) {
             TableColumn("Name", sortUsing: KeyPathComparator(\.name)) { item in
@@ -22,8 +39,22 @@ struct FileListView: View {
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .frame(width: 18, height: 18)
+
                     Text(item.name)
                         .lineLimit(1)
+                        .popover(
+                            isPresented: Binding(
+                                get: { renamingItemID == item.id },
+                                set: { if !$0 { cancelRename() } }
+                            ),
+                            arrowEdge: .bottom
+                        ) {
+                            RenamePopoverContent(
+                                text: $renamingText,
+                                onCommit: { commitRename(item: item) },
+                                onCancel: { cancelRename() }
+                            )
+                        }
                 }
             }
             .width(min: 200, ideal: 300)
@@ -46,25 +77,106 @@ struct FileListView: View {
             }
             .width(min: 80, ideal: 120)
         } rows: {
-            ForEach(filteredItems) { item in
-                TableRow(item)
-                    .contextMenu {
-                        fileContextMenu(for: item)
-                    }
+            Section {
+                ForEach(filteredFolders) { item in
+                    TableRow(item)
+                        .contextMenu { fileContextMenu(for: item) }
+                }
+            }
+            Section {
+                ForEach(filteredFiles) { item in
+                    TableRow(item)
+                        .contextMenu { fileContextMenu(for: item) }
+                }
+            }
+        }
+        .contextMenu {
+            backgroundContextMenu()
+        }
+        .onDeleteCommand {
+            let items = selectedFileItems
+            guard !items.isEmpty else { return }
+            TrashHelper.moveToTrash(items.map(\.url), using: appState.fileService) {
+                appState.refreshCurrentTab()
             }
         }
         .background(DoubleClickHandler {
             handleDoubleClick()
         })
+        .background(TableScrollHelper(scrollToID: $scrollToID, items: tab.items))
         .onChange(of: tab.currentPath) {
             appState.refreshCurrentTab()
         }
+        .onChange(of: appState.pendingRenameFolder) { _, folderName in
+            guard let folderName else { return }
+            appState.pendingRenameFolder = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                if let item = tab.items.first(where: { $0.name == folderName && $0.isDirectory }) {
+                    tab.selectedItems = [item.id]
+                    scrollToID = item.id
+                    renamingText = folderName
+                    renamingItemID = item.id
+                }
+            }
+        }
     }
 
-    private var filteredItems: [FileItem] {
-        let query = appState.searchQuery.lowercased()
-        guard !query.isEmpty else { return tab.items }
-        return tab.items.filter { $0.name.lowercased().contains(query) }
+    // MARK: - Rename
+
+    private func startRename(item: FileItem) {
+        renamingText = item.name
+        renamingItemID = item.id
+    }
+
+    private func cancelRename() {
+        renamingItemID = nil
+        renamingText = ""
+    }
+
+    private func commitRename(item: FileItem) {
+        let newName = renamingText.trimmingCharacters(in: .whitespaces)
+        renamingItemID = nil
+        guard !newName.isEmpty, newName != item.name else { return }
+
+        let newURL = item.url.deletingLastPathComponent().appendingPathComponent(newName)
+        try? FileManager.default.moveItem(at: item.url, to: newURL)
+        appState.refreshCurrentTab()
+    }
+
+    // MARK: - New Folder (inline)
+
+    private func createNewFolder(in parent: URL) {
+        let baseName = "New Folder"
+        var name = baseName
+        var counter = 1
+        while FileManager.default.fileExists(atPath: parent.appendingPathComponent(name).path) {
+            counter += 1
+            name = "\(baseName) \(counter)"
+        }
+
+        guard (try? appState.fileService.createFolder(at: parent, name: name)) != nil else { return }
+        appState.refreshCurrentTab()
+
+        // Find the new folder in refreshed items by matching the name and parent
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            if let newItem = tab.items.first(where: { $0.name == name && $0.isDirectory }) {
+                tab.selectedItems = [newItem.id]
+                scrollToID = newItem.id
+                renamingText = name
+                renamingItemID = newItem.id
+            }
+        }
+    }
+
+    // MARK: - Sorting
+
+    private func sortItems() {
+        let order = tab.sortOrder
+        var folders = tab.items.filter(\.isDirectory)
+        var files = tab.items.filter { !$0.isDirectory }
+        folders.sort(using: order)
+        files.sort(using: order)
+        tab.items = folders + files
     }
 
     private var selectedFileItems: [FileItem] {
@@ -72,6 +184,7 @@ struct FileListView: View {
     }
 
     private func handleDoubleClick() {
+        guard renamingItemID == nil else { return }
         let selected = selectedFileItems
         guard selected.count == 1, let item = selected.first else { return }
 
@@ -82,10 +195,23 @@ struct FileListView: View {
         }
     }
 
+    // MARK: - Context Menus
+
+    @ViewBuilder
+    private func backgroundContextMenu() -> some View {
+        Button("New Folder") {
+            createNewFolder(in: tab.currentPath)
+        }
+
+        Divider()
+
+        Button("Refresh") {
+            appState.refreshCurrentTab()
+        }
+    }
+
     @ViewBuilder
     private func fileContextMenu(for item: FileItem) -> some View {
-        // Use the full selection if the right-clicked item is part of it,
-        // otherwise treat it as a single-item action.
         let items = tab.selectedItems.contains(item.id) ? selectedFileItems : [item]
         let isSingle = items.count == 1
 
@@ -102,6 +228,12 @@ struct FileListView: View {
                 appState.addTab(path: item.url)
             }
             .disabled(!item.isDirectory)
+
+            Divider()
+
+            Button("Rename") {
+                startRename(item: item)
+            }
         } else {
             Button("Open All (\(items.count) items)") {
                 for f in items {
@@ -116,6 +248,20 @@ struct FileListView: View {
 
         Divider()
 
+        if isSingle && item.isDirectory {
+            Button("New Folder in \"\(item.name)\"") {
+                createNewFolder(in: item.url)
+            }
+
+            Divider()
+        }
+
+        Button("New Folder Here") {
+            createNewFolder(in: tab.currentPath)
+        }
+
+        Divider()
+
         Button("Show in Finder") {
             NSWorkspace.shared.activateFileViewerSelecting(items.map(\.url))
         }
@@ -123,11 +269,67 @@ struct FileListView: View {
         Divider()
 
         Button("Move to Trash (\(items.count) item\(items.count == 1 ? "" : "s"))", role: .destructive) {
-            for f in items {
-                try? appState.fileService.moveToTrash(f.url)
+            TrashHelper.moveToTrash(items.map(\.url), using: appState.fileService) {
+                appState.refreshCurrentTab()
             }
-            appState.refreshCurrentTab()
         }
+    }
+}
+
+/// Popover content for renaming a file or folder.
+struct RenamePopoverContent: View {
+    @Binding var text: String
+    let onCommit: () -> Void
+    let onCancel: () -> Void
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Text("Rename")
+                .font(.headline)
+            TextField("Name", text: $text)
+                .textFieldStyle(.roundedBorder)
+                .focused($isFocused)
+                .onSubmit { onCommit() }
+                .onExitCommand { onCancel() }
+                .frame(minWidth: 250)
+        }
+        .padding(12)
+        .onAppear {
+            isFocused = true
+        }
+    }
+}
+
+/// Scrolls the enclosing NSTableView to show a specific item by ID.
+struct TableScrollHelper: NSViewRepresentable {
+    @Binding var scrollToID: String?
+    let items: [FileItem]
+
+    func makeNSView(context: Context) -> NSView {
+        NSView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let targetID = scrollToID else { return }
+        DispatchQueue.main.async {
+            self.scrollToID = nil
+            guard let rowIndex = items.firstIndex(where: { $0.id == targetID }) else { return }
+            guard let tableView = findTableView(from: nsView) else { return }
+            tableView.scrollRowToVisible(rowIndex)
+        }
+    }
+
+    private func findTableView(from view: NSView) -> NSTableView? {
+        var current: NSView? = view
+        while let v = current {
+            if let table = v as? NSTableView { return table }
+            if let found = v.subviewsRecursive().first(where: { $0 is NSTableView }) as? NSTableView {
+                return found
+            }
+            current = v.superview
+        }
+        return nil
     }
 }
 
@@ -151,7 +353,6 @@ private class DoubleClickListenerView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        // Walk up the view hierarchy to find the NSTableView and set its doubleAction
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             if let tableView = self.findTableView(in: self) {
@@ -162,11 +363,9 @@ private class DoubleClickListenerView: NSView {
     }
 
     private func findTableView(in view: NSView) -> NSTableView? {
-        // Search up through superviews
         var current: NSView? = view
         while let v = current {
             if let table = v as? NSTableView { return table }
-            // Also search siblings/children of ancestors
             if let found = v.subviewsRecursive().first(where: { $0 is NSTableView }) as? NSTableView {
                 return found
             }
@@ -180,7 +379,7 @@ private class DoubleClickListenerView: NSView {
     }
 }
 
-private extension NSView {
+extension NSView {
     func subviewsRecursive() -> [NSView] {
         subviews + subviews.flatMap { $0.subviewsRecursive() }
     }

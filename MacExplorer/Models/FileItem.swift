@@ -20,11 +20,14 @@ final class FileItem: Identifiable, Hashable {
         self.name = url.lastPathComponent
 
         let resourceValues = try? url.resourceValues(forKeys: [
-            .isDirectoryKey, .fileSizeKey, .contentModificationDateKey,
+            .isDirectoryKey, .isPackageKey, .fileSizeKey, .contentModificationDateKey,
             .localizedTypeDescriptionKey, .effectiveIconKey
         ])
 
-        self.isDirectory = resourceValues?.isDirectory ?? false
+        let isDir = resourceValues?.isDirectory ?? false
+        let isPackage = resourceValues?.isPackage ?? false
+        // .app bundles and other packages are directories but should be treated as files
+        self.isDirectory = isDir && !isPackage
         self.size = Int64(resourceValues?.fileSize ?? 0)
         self.dateModified = resourceValues?.contentModificationDate ?? Date.distantPast
         self.kind = resourceValues?.localizedTypeDescription ?? (self.isDirectory ? "Folder" : "Document")

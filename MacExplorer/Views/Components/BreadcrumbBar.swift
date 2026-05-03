@@ -12,7 +12,8 @@ struct BreadcrumbBar: View {
                 tab.goBack()
                 appState.refreshCurrentTab()
             }) {
-                Image(systemName: "chevron.left")
+                Image(systemName: "arrow.left")
+                    .font(.system(size: 12, weight: .medium))
             }
             .disabled(!tab.canGoBack)
             .buttonStyle(.borderless)
@@ -21,7 +22,8 @@ struct BreadcrumbBar: View {
                 tab.goForward()
                 appState.refreshCurrentTab()
             }) {
-                Image(systemName: "chevron.right")
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 12, weight: .medium))
             }
             .disabled(!tab.canGoForward)
             .buttonStyle(.borderless)
