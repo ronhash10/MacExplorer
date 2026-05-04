@@ -21,49 +21,60 @@ struct SidebarView: View {
     }
 
     var body: some View {
-        List(selection: Binding(
-            get: { tab.currentPath },
-            set: { url in
-                if let url { appState.navigate(to: url) }
-            }
-        )) {
-            Section("Favorites") {
-                ForEach(appState.fileService.sidebarLocations, id: \.url) { location in
-                    Label(location.name, systemImage: location.icon)
-                        .tag(location.url)
-                        .dropDestination(for: URL.self) { urls, _ in
-                            moveFiles(urls, to: location.url)
-                            return true
-                        }
-                        .contextMenu {
-                            Button("Open in New Tab") {
-                                appState.addTab(path: location.url)
+        ScrollViewReader { proxy in
+            List(selection: Binding(
+                get: { tab.currentPath },
+                set: { url in
+                    if let url { appState.navigate(to: url) }
+                }
+            )) {
+                Section("Favorites") {
+                    ForEach(appState.fileService.sidebarLocations, id: \.url) { location in
+                        Label(location.name, systemImage: location.icon)
+                            .tag(location.url)
+                            .id(location.url)
+                            .dropDestination(for: URL.self) { urls, _ in
+                                moveFiles(urls, to: location.url)
+                                return true
                             }
-                            Divider()
-                            Button("New Folder") {
-                                createNewFolder(in: location.url)
+                            .contextMenu {
+                                Button("Open in New Tab") {
+                                    appState.addTab(path: location.url)
+                                }
+                                Divider()
+                                Button("New Folder") {
+                                    createNewFolder(in: location.url)
+                                }
                             }
-                        }
+                    }
+                }
+
+                Section("Volumes") {
+                    ForEach(appState.fileService.volumes, id: \.self) { volume in
+                        Label(volume.lastPathComponent, systemImage: "externaldrive")
+                            .tag(volume)
+                            .id(volume)
+                            .contextMenu {
+                                Button("Open in New Tab") {
+                                    appState.addTab(path: volume)
+                                }
+                            }
+                    }
+                }
+
+                Section("Folders") {
+                    FolderTreeNode(url: treeRoot, activePath: tab.currentPath, depth: 0)
                 }
             }
-
-            Section("Volumes") {
-                ForEach(appState.fileService.volumes, id: \.self) { volume in
-                    Label(volume.lastPathComponent, systemImage: "externaldrive")
-                        .tag(volume)
-                        .contextMenu {
-                            Button("Open in New Tab") {
-                                appState.addTab(path: volume)
-                            }
-                        }
+            .listStyle(.sidebar)
+            .onChange(of: tab.currentPath) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    withAnimation {
+                        proxy.scrollTo(tab.currentPath, anchor: .center)
+                    }
                 }
-            }
-
-            Section("Folders") {
-                FolderTreeNode(url: treeRoot, activePath: tab.currentPath, depth: 0)
             }
         }
-        .listStyle(.sidebar)
     }
 
     private func createNewFolder(in parentURL: URL) {
@@ -118,6 +129,7 @@ struct FolderTreeNode: View {
             } label: {
                 Label(url.lastPathComponent, systemImage: isOnActivePath ? "folder.fill" : "folder")
                     .tag(url)
+                    .id(url)
                     .fontWeight(url.standardizedFileURL == activePath.standardizedFileURL ? .bold : .regular)
                     .popover(isPresented: $isRenaming, arrowEdge: .trailing) {
                         RenamePopoverContent(
@@ -166,6 +178,7 @@ struct FolderTreeNode: View {
         } else {
             Label(url.lastPathComponent, systemImage: "folder")
                 .tag(url)
+                .id(url)
                 .popover(isPresented: $isRenaming, arrowEdge: .trailing) {
                     RenamePopoverContent(
                         text: $renameText,
