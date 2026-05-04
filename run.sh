@@ -69,5 +69,8 @@ echo "Registering with Launch Services..."
 /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -f "$APP_DIR"
 
 echo "Launching..."
+# Kill any existing instance first so the new binary is loaded
+pkill -x MacExplorer 2>/dev/null || true
+sleep 0.5
 open "$APP_DIR"
 echo "Done!"

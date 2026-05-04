@@ -1,18 +1,25 @@
 import SwiftUI
 
 /// Sidebar folder tree with quick-access locations and expandable directories.
+/// Uses ScrollView + LazyVStack instead of List so ScrollViewReader works for programmatic scrolling.
 struct SidebarView: View {
     @Environment(AppState.self) private var appState
     @Bindable var tab: TabState
 
+    /// Tracks which folders are expanded by their standardized path
+    @State private var expandedPaths: Set<String> = []
+    /// Rename state
+    @State private var renamingURL: URL?
+    @State private var renameText: String = ""
+    /// Reload counter to force tree refresh
+    @State private var reloadToken: Int = 0
+
     private var treeRoot: URL {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let current = tab.currentPath.standardizedFileURL
-        // If current path is under home, root at home; otherwise root at volume
         if current.path.hasPrefix(home.path) {
             return home
         }
-        // Find the volume root
         let components = current.pathComponents
         if components.count >= 3 && components[1] == "Volumes" {
             return URL(fileURLWithPath: "/" + components[1] + "/" + components[2])
@@ -20,50 +27,279 @@ struct SidebarView: View {
         return URL(fileURLWithPath: "/")
     }
 
-    var body: some View {
-        List(selection: Binding(
-            get: { tab.currentPath },
-            set: { url in
-                if let url { appState.navigate(to: url) }
+    /// Represents a single visible row in the flattened tree
+    private struct FlatNode: Identifiable {
+        let url: URL
+        let depth: Int
+        let hasChildren: Bool
+        var id: String { url.standardizedFileURL.path }
+    }
+
+    /// Flatten the tree: only include children of expanded nodes
+    private var visibleNodes: [FlatNode] {
+        // Access reloadToken to trigger recomputation
+        _ = reloadToken
+        var result: [FlatNode] = []
+        func visit(_ url: URL, depth: Int) {
+            let stdPath = url.standardizedFileURL.path
+            let children = loadChildren(of: url)
+            result.append(FlatNode(url: url, depth: depth, hasChildren: !children.isEmpty))
+            if expandedPaths.contains(stdPath) {
+                for child in children {
+                    visit(child, depth: depth + 1)
+                }
             }
-        )) {
-            Section("Favorites") {
-                ForEach(appState.fileService.sidebarLocations, id: \.url) { location in
-                    Label(location.name, systemImage: location.icon)
-                        .tag(location.url)
+        }
+        visit(treeRoot, depth: 0)
+        return result
+    }
+
+    private func loadChildren(of url: URL) -> [URL] {
+        appState.fileService.contentsOfDirectory(at: url)
+            .filter(\.isDirectory)
+            .map(\.url)
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
+    /// Ensure all ancestors of a path are expanded
+    private func expandAncestors(of targetURL: URL) {
+        let rootPath = treeRoot.standardizedFileURL.path
+        let targetPath = targetURL.standardizedFileURL.path
+        guard targetPath.hasPrefix(rootPath) else { return }
+
+        // Walk from root to target, expanding each ancestor
+        var current = treeRoot.standardizedFileURL
+        expandedPaths.insert(current.path)
+        let rootComponents = treeRoot.standardizedFileURL.pathComponents
+        let targetComponents = targetURL.standardizedFileURL.pathComponents
+        for i in rootComponents.count..<targetComponents.count {
+            current = current.appendingPathComponent(targetComponents[i])
+            expandedPaths.insert(current.standardizedFileURL.path)
+        }
+    }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    // MARK: Favorites
+                    sidebarSectionHeader("Favorites")
+                    ForEach(appState.fileService.sidebarLocations, id: \.url) { location in
+                        sidebarRow(
+                            label: location.name,
+                            icon: location.icon,
+                            url: location.url,
+                            depth: 0,
+                            isSelected: tab.currentPath.standardizedFileURL == location.url.standardizedFileURL
+                        )
                         .dropDestination(for: URL.self) { urls, _ in
                             moveFiles(urls, to: location.url)
                             return true
                         }
                         .contextMenu {
-                            Button("Open in New Tab") {
-                                appState.addTab(path: location.url)
-                            }
+                            Button("Open in New Tab") { appState.addTab(path: location.url) }
                             Divider()
-                            Button("New Folder") {
-                                createNewFolder(in: location.url)
-                            }
+                            Button("New Folder") { createNewFolder(in: location.url) }
                         }
-                }
-            }
+                    }
 
-            Section("Volumes") {
-                ForEach(appState.fileService.volumes, id: \.self) { volume in
-                    Label(volume.lastPathComponent, systemImage: "externaldrive")
-                        .tag(volume)
+                    // MARK: Volumes
+                    sidebarSectionHeader("Volumes")
+                    ForEach(appState.fileService.volumes, id: \.self) { volume in
+                        sidebarRow(
+                            label: volume.lastPathComponent,
+                            icon: "externaldrive",
+                            url: volume,
+                            depth: 0,
+                            isSelected: tab.currentPath.standardizedFileURL == volume.standardizedFileURL
+                        )
                         .contextMenu {
-                            Button("Open in New Tab") {
-                                appState.addTab(path: volume)
-                            }
+                            Button("Open in New Tab") { appState.addTab(path: volume) }
                         }
-                }
-            }
+                    }
 
-            Section("Folders") {
-                FolderTreeNode(url: treeRoot, activePath: tab.currentPath, depth: 0)
+                    // MARK: Folders tree (VStack, not LazyVStack, so ScrollViewReader can find all IDs)
+                    sidebarSectionHeader("Folders")
+                    ForEach(visibleNodes) { node in
+                        folderRow(node: node)
+                            .id(node.id)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .onAppear {
+                expandAncestors(of: tab.currentPath)
+            }
+            .onChange(of: tab.currentPath) {
+                expandAncestors(of: tab.currentPath)
+            }
+            .onChange(of: appState.sidebarScrollTarget) { _, target in
+                guard let target else { return }
+                appState.sidebarScrollTarget = nil
+                let targetID = target.standardizedFileURL.path
+                expandAncestors(of: target)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    withAnimation {
+                        proxy.scrollTo(targetID, anchor: .center)
+                    }
+                }
             }
         }
-        .listStyle(.sidebar)
+    }
+
+    // MARK: - Section Header
+
+    @ViewBuilder
+    private func sidebarSectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.caption)
+            .fontWeight(.semibold)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.top, 12)
+            .padding(.bottom, 2)
+    }
+
+    // MARK: - Generic Sidebar Row (favorites/volumes)
+
+    @ViewBuilder
+    private func sidebarRow(label: String, icon: String, url: URL, depth: Int, isSelected: Bool) -> some View {
+        HStack(spacing: 4) {
+            // No chevron for non-tree items
+            Color.clear.frame(width: 16, height: 16)
+            Image(systemName: icon)
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+            Text(label)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer()
+        }
+        .padding(.vertical, 3)
+        .padding(.horizontal, 8)
+        .padding(.leading, CGFloat(depth) * 16)
+        .background(
+            RoundedRectangle(cornerRadius: 5)
+                .fill(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
+                .padding(.horizontal, 4)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            appState.navigate(to: url)
+        }
+    }
+
+    // MARK: - Folder Tree Row
+
+    @ViewBuilder
+    private func folderRow(node: FlatNode) -> some View {
+        let stdPath = node.url.standardizedFileURL.path
+        let isExpanded = expandedPaths.contains(stdPath)
+        let isActive = tab.currentPath.standardizedFileURL.path.hasPrefix(stdPath)
+        let isSelected = tab.currentPath.standardizedFileURL == node.url.standardizedFileURL
+        let isBeingRenamed = renamingURL?.standardizedFileURL == node.url.standardizedFileURL
+
+        HStack(spacing: 4) {
+            // Disclosure chevron
+            if node.hasChildren {
+                Image(systemName: "chevron.right")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .frame(width: 16, height: 16)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            if isExpanded {
+                                expandedPaths.remove(stdPath)
+                            } else {
+                                expandedPaths.insert(stdPath)
+                            }
+                        }
+                    }
+            } else {
+                Color.clear.frame(width: 16, height: 16)
+            }
+
+            Image(systemName: isActive ? "folder.fill" : "folder")
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+            Text(node.url.lastPathComponent)
+                .fontWeight(isSelected ? .bold : .regular)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer()
+        }
+        .padding(.vertical, 3)
+        .padding(.horizontal, 8)
+        .padding(.leading, CGFloat(node.depth) * 16)
+        .background(
+            RoundedRectangle(cornerRadius: 5)
+                .fill(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
+                .padding(.horizontal, 4)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            appState.navigate(to: node.url)
+            if node.hasChildren {
+                _ = withAnimation(.easeInOut(duration: 0.15)) {
+                    expandedPaths.insert(stdPath)
+                }
+            }
+        }
+        .popover(isPresented: Binding(
+            get: { isBeingRenamed },
+            set: { if !$0 { renamingURL = nil } }
+        ), arrowEdge: .trailing) {
+            RenamePopoverContent(
+                text: $renameText,
+                onCommit: {
+                    commitRename(from: node.url)
+                },
+                onCancel: { renamingURL = nil }
+            )
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            moveFiles(urls, to: node.url)
+            return true
+        }
+        .contextMenu {
+            Button("Open in New Tab") { appState.addTab(path: node.url) }
+            Divider()
+            Button("Rename") {
+                renameText = node.url.lastPathComponent
+                renamingURL = node.url
+            }
+            Button("New Folder") { createNewFolder(in: node.url) }
+            Divider()
+            Button("Move to Trash", role: .destructive) { trashFolder(node.url) }
+        }
+    }
+
+    // MARK: - Actions
+
+    private func commitRename(from oldURL: URL) {
+        renamingURL = nil
+        let newName = renameText.trimmingCharacters(in: .whitespaces)
+        guard !newName.isEmpty, newName != oldURL.lastPathComponent else { return }
+        let newURL = oldURL.deletingLastPathComponent().appendingPathComponent(newName, isDirectory: true)
+        try? FileManager.default.moveItem(at: oldURL, to: newURL)
+
+        // Update expanded paths: replace old path with new
+        let oldPath = oldURL.standardizedFileURL.path
+        let newPath = newURL.standardizedFileURL.path
+        let pathsToUpdate = expandedPaths.filter { $0.hasPrefix(oldPath) }
+        for path in pathsToUpdate {
+            expandedPaths.remove(path)
+            expandedPaths.insert(path.replacingOccurrences(of: oldPath, with: newPath))
+        }
+
+        // Force reload of tree data
+        reloadToken += 1
+
+        appState.navigate(to: newURL.standardizedFileURL)
+        appState.sidebarScrollTarget = newURL.standardizedFileURL
     }
 
     private func createNewFolder(in parentURL: URL) {
@@ -75,139 +311,12 @@ struct SidebarView: View {
             name = "\(baseName) \(counter)"
         }
         _ = try? appState.fileService.createFolder(at: parentURL, name: name)
+        // Force reload of tree
+        reloadToken += 1
+        // Ensure parent is expanded
+        expandedPaths.insert(parentURL.standardizedFileURL.path)
         appState.navigate(to: parentURL)
         appState.pendingRenameFolder = name
-    }
-
-    private func moveFiles(_ urls: [URL], to destination: URL) {
-        for url in urls {
-            let target = destination.appendingPathComponent(url.lastPathComponent)
-            guard url.deletingLastPathComponent().standardizedFileURL != destination.standardizedFileURL else { continue }
-            try? FileManager.default.moveItem(at: url, to: target)
-        }
-        appState.refreshCurrentTab()
-    }
-}
-
-/// A recursive folder tree node that auto-expands along the active path.
-struct FolderTreeNode: View {
-    @Environment(AppState.self) private var appState
-    let url: URL
-    let activePath: URL
-    let depth: Int
-
-    @State private var children: [URL] = []
-    @State private var isLoaded = false
-    @State private var isExpanded = false
-    @State private var isRenaming = false
-    @State private var renameText = ""
-
-    private static let maxDepth = 10
-
-    /// Whether this node is an ancestor of (or equal to) the active path.
-    private var isOnActivePath: Bool {
-        activePath.standardizedFileURL.path.hasPrefix(url.standardizedFileURL.path)
-    }
-
-    var body: some View {
-        if depth < Self.maxDepth {
-            DisclosureGroup(isExpanded: $isExpanded) {
-                ForEach(children, id: \.self) { childURL in
-                    FolderTreeNode(url: childURL, activePath: activePath, depth: depth + 1)
-                }
-            } label: {
-                Label(url.lastPathComponent, systemImage: isOnActivePath ? "folder.fill" : "folder")
-                    .fontWeight(url.standardizedFileURL == activePath.standardizedFileURL ? .bold : .regular)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        appState.navigate(to: url)
-                        isExpanded = true
-                        isLoaded = false
-                        loadChildrenIfNeeded()
-                    }
-                    .popover(isPresented: $isRenaming, arrowEdge: .trailing) {
-                        RenamePopoverContent(
-                            text: $renameText,
-                            onCommit: { commitRename() },
-                            onCancel: { isRenaming = false }
-                        )
-                    }
-                    .dropDestination(for: URL.self) { urls, _ in
-                        moveFiles(urls, to: url)
-                        return true
-                    }
-                    .contextMenu {
-                        Button("Open in New Tab") {
-                            appState.addTab(path: url)
-                        }
-                        Divider()
-                        Button("Rename") {
-                            renameText = url.lastPathComponent
-                            isRenaming = true
-                        }
-                        Button("New Folder") {
-                            createNewFolder(in: url)
-                        }
-                        Divider()
-                        Button("Move to Trash", role: .destructive) {
-                            trashFolder(url)
-                        }
-                    }
-            }
-            .tag(url)
-            .onAppear {
-                loadChildrenIfNeeded()
-                if isOnActivePath { isExpanded = true }
-            }
-            .onChange(of: activePath) {
-                if isOnActivePath {
-                    isExpanded = true
-                    isLoaded = false
-                    loadChildrenIfNeeded()
-                }
-                // If this exact folder was selected, expand it
-                if activePath.standardizedFileURL == url.standardizedFileURL {
-                    isExpanded = true
-                    isLoaded = false
-                    loadChildrenIfNeeded()
-                }
-            }
-        } else {
-            Label(url.lastPathComponent, systemImage: "folder")
-                .tag(url)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    appState.navigate(to: url)
-                }
-                .popover(isPresented: $isRenaming, arrowEdge: .trailing) {
-                    RenamePopoverContent(
-                        text: $renameText,
-                        onCommit: { commitRename() },
-                        onCancel: { isRenaming = false }
-                    )
-                }
-                .dropDestination(for: URL.self) { urls, _ in
-                    moveFiles(urls, to: url)
-                    return true
-                }
-                .contextMenu {
-                    Button("Open in New Tab") {
-                        appState.addTab(path: url)
-                    }
-                    Divider()
-                    Button("Rename") {
-                        renameText = url.lastPathComponent
-                        isRenaming = true
-                    }
-                    Button("New Folder") {
-                        createNewFolder(in: url)
-                    }
-                    Divider()
-                    Button("Move to Trash", role: .destructive) {
-                        trashFolder(url)
-                    }
-                }
-        }
     }
 
     private func trashFolder(_ folderURL: URL) {
@@ -216,6 +325,7 @@ struct FolderTreeNode: View {
                 .hasPrefix(folderURL.standardizedFileURL.path) == true {
                 appState.navigate(to: folderURL.deletingLastPathComponent())
             }
+            reloadToken += 1
             appState.refreshCurrentTab()
         }
     }
@@ -226,75 +336,8 @@ struct FolderTreeNode: View {
             guard url.deletingLastPathComponent().standardizedFileURL != destination.standardizedFileURL else { continue }
             try? FileManager.default.moveItem(at: url, to: target)
         }
+        reloadToken += 1
         appState.refreshCurrentTab()
-    }
-
-    private func commitRename() {
-        isRenaming = false
-        let newName = renameText.trimmingCharacters(in: .whitespaces)
-        guard !newName.isEmpty, newName != url.lastPathComponent else { return }
-        let newURL = url.deletingLastPathComponent().appendingPathComponent(newName, isDirectory: true)
-        try? FileManager.default.moveItem(at: url, to: newURL)
-        appState.navigate(to: newURL.standardizedFileURL)
-        // Wait for tree to reload then scroll
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            Self.scrollSidebarToSelection()
-        }
-    }
-
-    /// Walk all windows to find NSOutlineView and scroll the selected row into view.
-    static func scrollSidebarToSelection() {
-        for window in NSApp.windows {
-            guard let contentView = window.contentView else { continue }
-            var outlines: [NSOutlineView] = []
-            Self.findAllOutlineViews(in: contentView, results: &outlines)
-            for outline in outlines {
-                let row = outline.selectedRow
-                if row >= 0 {
-                    outline.scrollRowToVisible(row)
-                    return
-                }
-            }
-        }
-    }
-
-    private static func findAllOutlineViews(in view: NSView, results: inout [NSOutlineView]) {
-        if let outline = view as? NSOutlineView { results.append(outline) }
-        for subview in view.subviews {
-            findAllOutlineViews(in: subview, results: &results)
-        }
-    }
-
-    private static func findOutlineViewIn(_ view: NSView) -> NSOutlineView? {
-        if let outline = view as? NSOutlineView { return outline }
-        for subview in view.subviews {
-            if let found = findOutlineViewIn(subview) { return found }
-        }
-        return nil
-    }
-
-    private func createNewFolder(in parentURL: URL) {
-        let baseName = "New Folder"
-        var name = baseName
-        var counter = 1
-        while FileManager.default.fileExists(atPath: parentURL.appendingPathComponent(name).path) {
-            counter += 1
-            name = "\(baseName) \(counter)"
-        }
-        _ = try? appState.fileService.createFolder(at: parentURL, name: name)
-        isLoaded = false
-        loadChildrenIfNeeded()
-        appState.navigate(to: parentURL)
-        appState.pendingRenameFolder = name
-    }
-
-    private func loadChildrenIfNeeded() {
-        guard !isLoaded else { return }
-        isLoaded = true
-        children = appState.fileService.contentsOfDirectory(at: url)
-            .filter(\.isDirectory)
-            .map(\.url)
-            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
     }
 }
 

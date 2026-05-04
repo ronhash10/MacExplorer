@@ -22,6 +22,8 @@ final class AppState {
     var pendingRenameFolder: String?
     /// Set to scroll the file list to a specific item (e.g. after paste)
     var scrollToItemID: String?
+    /// Set to scroll the sidebar tree to a specific folder URL (e.g. after rename)
+    var sidebarScrollTarget: URL?
 
     let fileService = FileSystemService()
 
