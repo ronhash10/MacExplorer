@@ -20,8 +20,6 @@ struct SidebarView: View {
         return URL(fileURLWithPath: "/")
     }
 
-    @State private var scrollToPath: URL?
-
     var body: some View {
         List(selection: Binding(
             get: { tab.currentPath },
@@ -66,12 +64,6 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
-        .background(SidebarScrollHelper(scrollToPath: $scrollToPath))
-        .onChange(of: tab.currentPath) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                scrollToPath = tab.currentPath
-            }
-        }
     }
 
     private func createNewFolder(in parentURL: URL) {
@@ -233,11 +225,40 @@ struct FolderTreeNode: View {
         isRenaming = false
         let newName = renameText.trimmingCharacters(in: .whitespaces)
         guard !newName.isEmpty, newName != url.lastPathComponent else { return }
-        let newURL = url.deletingLastPathComponent().appendingPathComponent(newName)
+        let newURL = url.deletingLastPathComponent().appendingPathComponent(newName, isDirectory: true)
         try? FileManager.default.moveItem(at: url, to: newURL)
-        // Navigate to the renamed folder so it becomes visible and highlighted
-        appState.navigate(to: newURL)
-        appState.refreshCurrentTab()
+        // Navigate to parent first to reload tree, then to the renamed folder
+        let parent = url.deletingLastPathComponent()
+        appState.navigate(to: parent)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            appState.navigate(to: newURL.standardizedFileURL)
+            // Find and scroll the outline view
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                Self.scrollSidebarToSelection()
+            }
+        }
+    }
+
+    /// Walk all windows to find the sidebar NSOutlineView and scroll to the selected row.
+    static func scrollSidebarToSelection() {
+        for window in NSApp.windows {
+            guard let contentView = window.contentView else { continue }
+            if let outlineView = findOutlineViewIn(contentView) {
+                let row = outlineView.selectedRow
+                if row >= 0 {
+                    outlineView.scrollRowToVisible(row)
+                }
+                return
+            }
+        }
+    }
+
+    private static func findOutlineViewIn(_ view: NSView) -> NSOutlineView? {
+        if let outline = view as? NSOutlineView { return outline }
+        for subview in view.subviews {
+            if let found = findOutlineViewIn(subview) { return found }
+        }
+        return nil
     }
 
     private func createNewFolder(in parentURL: URL) {
@@ -265,41 +286,3 @@ struct FolderTreeNode: View {
     }
 }
 
-/// Scrolls the sidebar's NSOutlineView to show the selected row.
-struct SidebarScrollHelper: NSViewRepresentable {
-    @Binding var scrollToPath: URL?
-
-    func makeNSView(context: Context) -> NSView {
-        NSView()
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        guard scrollToPath != nil else { return }
-        DispatchQueue.main.async {
-            self.scrollToPath = nil
-            guard let outlineView = findOutlineView(from: nsView) else { return }
-            let selectedRow = outlineView.selectedRow
-            if selectedRow >= 0 {
-                outlineView.scrollRowToVisible(selectedRow)
-            }
-        }
-    }
-
-    private func findOutlineView(from view: NSView) -> NSOutlineView? {
-        var current: NSView? = view
-        while let v = current {
-            if let outline = v as? NSOutlineView { return outline }
-            if let found = findInSubviews(v) { return found }
-            current = v.superview
-        }
-        return nil
-    }
-
-    private func findInSubviews(_ view: NSView) -> NSOutlineView? {
-        for subview in view.subviews {
-            if let outline = subview as? NSOutlineView { return outline }
-            if let found = findInSubviews(subview) { return found }
-        }
-        return nil
-    }
-}
