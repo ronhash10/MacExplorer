@@ -24,10 +24,13 @@ struct ContentView: View {
 
                     HSplitView {
                         FileListView(tab: tab)
-                        if appState.showPreview {
-                            PreviewPane(tab: tab)
-                                .frame(minWidth: 200, idealWidth: 400, maxWidth: 900)
-                        }
+                        PreviewPane(tab: tab)
+                            .frame(
+                                minWidth: appState.showPreview ? 200 : 0,
+                                idealWidth: appState.showPreview ? 400 : 0,
+                                maxWidth: appState.showPreview ? 900 : 0
+                            )
+                            .opacity(appState.showPreview ? 1 : 0)
                     }
 
                     Divider()
