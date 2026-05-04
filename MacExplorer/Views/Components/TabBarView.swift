@@ -43,6 +43,7 @@ struct TabBarView: View {
                     .font(.caption)
             }
             .buttonStyle(.borderless)
+            .focusable(false)
             .padding(.horizontal, 8)
         }
         .padding(.vertical, 4)
