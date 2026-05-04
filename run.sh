@@ -63,6 +63,7 @@ cat > "$APP_DIR/Contents/Info.plist" << 'EOF'
 EOF
 
 echo "Code signing with entitlements..."
+xattr -cr "$APP_DIR" 2>/dev/null
 codesign --force --sign "MacExplorer Dev" --entitlements "$ENTITLEMENTS" "$APP_DIR"
 
 echo "Registering with Launch Services..."

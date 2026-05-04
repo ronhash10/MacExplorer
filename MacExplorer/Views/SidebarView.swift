@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Sidebar folder tree with quick-access locations and expandable directories.
 /// Uses ScrollView + LazyVStack instead of List so ScrollViewReader works for programmatic scrolling.
@@ -92,9 +93,8 @@ struct SidebarView: View {
                             depth: 0,
                             isSelected: tab.currentPath.standardizedFileURL == location.url.standardizedFileURL
                         )
-                        .dropDestination(for: URL.self) { urls, _ in
-                            moveFiles(urls, to: location.url)
-                            return true
+                        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                            handleDrop(providers: providers, destination: location.url)
                         }
                         .contextMenu {
                             Button("Open in New Tab") { appState.addTab(path: location.url) }
@@ -260,9 +260,8 @@ struct SidebarView: View {
                 onCancel: { renamingURL = nil }
             )
         }
-        .dropDestination(for: URL.self) { urls, _ in
-            moveFiles(urls, to: node.url)
-            return true
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            handleDrop(providers: providers, destination: node.url)
         }
         .contextMenu {
             Button("Open in New Tab") { appState.addTab(path: node.url) }
@@ -338,6 +337,23 @@ struct SidebarView: View {
         }
         reloadToken += 1
         appState.refreshCurrentTab()
+    }
+
+    private func handleDrop(providers: [NSItemProvider], destination: URL) -> Bool {
+        var handled = false
+        for provider in providers {
+            if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                handled = true
+                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { data, _ in
+                    guard let data = data as? Data,
+                          let url = URL(dataRepresentation: data, relativeTo: nil, isAbsolute: true) else { return }
+                    DispatchQueue.main.async {
+                        moveFiles([url], to: destination)
+                    }
+                }
+            }
+        }
+        return handled
     }
 }
 

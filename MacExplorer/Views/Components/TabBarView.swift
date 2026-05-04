@@ -3,52 +3,87 @@ import SwiftUI
 /// Tab bar showing all open tabs with add/close controls and drag-to-merge support.
 struct TabBarView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.colorScheme) private var colorScheme
     @State private var dragOverIndex: Int?
+    @State private var isAddHovered = false
 
     var body: some View {
-        HStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 1) {
-                    ForEach(Array(appState.tabs.enumerated()), id: \.element.id) { index, tab in
-                        TabItemView(
-                            tab: tab,
-                            isActive: tab.id == appState.activeTabID,
-                            isDragTarget: dragOverIndex == index,
-                            windowID: appState.windowID,
-                            onSelect: {
-                                appState.activeTabID = tab.id
-                                appState.refreshCurrentTab()
-                            },
-                            onClose: {
-                                appState.closeTab(tab.id)
+        ZStack(alignment: .bottom) {
+            // Tab bar background (slightly darker than content)
+            Color(nsColor: .windowBackgroundColor)
+                .opacity(colorScheme == .dark ? 1 : 0.6)
+
+            // Bottom separator line (full width)
+            VStack {
+                Spacer()
+                Rectangle()
+                    .fill(Color(nsColor: .separatorColor))
+                    .frame(height: 1)
+            }
+
+            // Tabs content
+            HStack(spacing: 0) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 0) {
+                        ForEach(Array(appState.tabs.enumerated()), id: \.element.id) { index, tab in
+                            let isActive = tab.id == appState.activeTabID
+
+                            if index > 0 && !isActive && appState.tabs[safe: index - 1]?.id != appState.activeTabID {
+                                // Divider between inactive tabs
+                                Rectangle()
+                                    .fill(Color(nsColor: .separatorColor))
+                                    .frame(width: 1, height: 16)
+                                    .padding(.vertical, 6)
                             }
-                        )
-                        .dropDestination(for: TabTransferData.self) { items, _ in
-                            handleDrop(items, atIndex: index)
-                        } isTargeted: { targeted in
-                            dragOverIndex = targeted ? index : nil
+
+                            TabItemView(
+                                tab: tab,
+                                isActive: isActive,
+                                isDragTarget: dragOverIndex == index,
+                                windowID: appState.windowID,
+                                onSelect: {
+                                    appState.activeTabID = tab.id
+                                },
+                                onClose: {
+                                    appState.closeTab(tab.id)
+                                }
+                            )
+                            .zIndex(isActive ? 1 : 0)
+                            .dropDestination(for: TabTransferData.self) { items, _ in
+                                handleDrop(items, atIndex: index)
+                            } isTargeted: { targeted in
+                                dragOverIndex = targeted ? index : nil
+                            }
                         }
+
+                        // + button inline after last tab
+                        Button(action: { appState.addTab() }) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 26, height: 26)
+                                .background(
+                                    Circle()
+                                        .fill(Color.primary.opacity(isAddHovered ? 0.10 : 0))
+                                )
+                                .contentShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .focusable(false)
+                        .onHover { isAddHovered = $0 }
+                        .padding(.leading, 8)
                     }
+                    .padding(.horizontal, 4)
                 }
-            }
-            // Drop zone at the end of the tab bar (append)
-            .dropDestination(for: TabTransferData.self) { items, _ in
-                handleDrop(items, atIndex: appState.tabs.count)
-            } isTargeted: { _ in }
+                .dropDestination(for: TabTransferData.self) { items, _ in
+                    handleDrop(items, atIndex: appState.tabs.count)
+                } isTargeted: { _ in }
 
-            Spacer()
-
-            Button(action: { appState.addTab() }) {
-                Image(systemName: "plus")
-                    .font(.caption)
+                Spacer()
             }
-            .buttonStyle(.borderless)
-            .focusable(false)
-            .padding(.horizontal, 8)
+            .padding(.top, 4)
         }
-        .padding(.vertical, 4)
-        .padding(.leading, 4)
-        .background(.bar)
+        .frame(height: 36)
     }
 
     private func handleDrop(_ items: [TabTransferData], atIndex index: Int) -> Bool {
@@ -59,7 +94,6 @@ struct TabBarView: View {
         let targetWindowID = appState.windowID
 
         if sourceWindowID == targetWindowID {
-            // Reorder within the same window
             guard let fromIndex = appState.tabs.firstIndex(where: { $0.id == tabID }),
                   fromIndex != index else { return false }
             let tab = appState.tabs.remove(at: fromIndex)
@@ -68,7 +102,6 @@ struct TabBarView: View {
             appState.activeTabID = tab.id
             return true
         } else {
-            // Transfer from another window
             WindowManager.shared.transferTab(
                 tabID: tabID,
                 fromWindow: sourceWindowID,
@@ -80,7 +113,7 @@ struct TabBarView: View {
     }
 }
 
-/// Individual tab button with drag support.
+/// Individual tab button with Safari/Chrome connected style.
 struct TabItemView: View {
     let tab: TabState
     let isActive: Bool
@@ -89,38 +122,78 @@ struct TabItemView: View {
     let onSelect: () -> Void
     let onClose: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var isHovering = false
+    @State private var isHoveringClose = false
+
+    private let tabHeight: CGFloat = 30
+
+    private var activeTabShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            topLeadingRadius: 8,
+            bottomLeadingRadius: 0,
+            bottomTrailingRadius: 0,
+            topTrailingRadius: 8
+        )
+    }
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
             Image(systemName: "folder")
-                .font(.caption2)
+                .font(.system(size: 12))
+                .foregroundStyle(isActive ? Color.accentColor : .secondary)
+
             Text(tab.title)
                 .lineLimit(1)
-                .font(.callout)
+                .font(.system(size: 12))
+                .foregroundStyle(isActive ? .primary : .secondary)
                 .frame(maxWidth: 140)
 
+            // Close button
             Button(action: onClose) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundStyle(isHoveringClose ? .primary : .secondary)
+                    .frame(width: 18, height: 18)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.primary.opacity(isHoveringClose ? 0.12 : 0))
+                    )
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
             .focusable(false)
+            .onHover { isHoveringClose = $0 }
             .opacity(isHovering || isActive ? 1 : 0)
+            .animation(.easeInOut(duration: 0.1), value: isHovering)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(isDragTarget ? Color.accentColor.opacity(0.3) :
-                      isActive ? Color.accentColor.opacity(0.15) :
-                      (isHovering ? Color.gray.opacity(0.1) : Color.clear))
-        )
+        .padding(.horizontal, 12)
+        .frame(height: tabHeight)
+        .background {
+            if isActive {
+                activeTabShape
+                    .fill(Color(nsColor: .controlBackgroundColor))
+                activeTabShape
+                    .fill(Color.accentColor.opacity(colorScheme == .dark ? 0.08 : 0.04))
+            } else if isDragTarget {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.accentColor.opacity(0.15))
+                    .padding(.bottom, 2)
+            } else if isHovering {
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 6,
+                    bottomLeadingRadius: 0,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: 6
+                )
+                .fill(Color.primary.opacity(0.05))
+            }
+        }
         .overlay(
             isDragTarget ?
                 RoundedRectangle(cornerRadius: 6)
                     .strokeBorder(Color.accentColor, lineWidth: 2)
+                    .padding(.bottom, 2)
                 : nil
         )
         .onTapGesture(perform: onSelect)
@@ -129,19 +202,25 @@ struct TabItemView: View {
             isHovering = hovering
         }
         .draggable(TabTransferData(tab: tab, windowID: windowID)) {
-            // Drag preview
             HStack(spacing: 4) {
                 Image(systemName: "folder")
-                    .font(.caption2)
+                    .font(.system(size: 12))
                 Text(tab.title)
-                    .font(.callout)
+                    .font(.system(size: 12))
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
             .background(
                 RoundedRectangle(cornerRadius: 6)
                     .fill(Color.accentColor.opacity(0.2))
             )
         }
+    }
+}
+
+// Safe array subscript
+extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }

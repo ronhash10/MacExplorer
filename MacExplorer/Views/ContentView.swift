@@ -10,7 +10,6 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             TabBarView()
-            Divider()
             mainContent
         }
     }
