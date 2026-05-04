@@ -203,25 +203,26 @@ struct FileListView: View {
     // MARK: - Copy & Paste
 
     private func trashAndSelectNext(_ items: [FileItem]) {
-        // Determine the next item to select after deletion
         let allItems = filteredFolders + filteredFiles
         let deletedIDs = Set(items.map(\.id))
-        var nextID: String?
+        // Find the next item's name to select after deletion
+        var nextName: String?
         if let lastIndex = allItems.lastIndex(where: { deletedIDs.contains($0.id) }) {
-            // Try item after last deleted
             if lastIndex + 1 < allItems.count, !deletedIDs.contains(allItems[lastIndex + 1].id) {
-                nextID = allItems[lastIndex + 1].id
+                nextName = allItems[lastIndex + 1].name
             } else if let prev = allItems[0...lastIndex].last(where: { !deletedIDs.contains($0.id) }) {
-                nextID = prev.id
+                nextName = prev.name
             }
         }
 
         TrashHelper.moveToTrash(items.map(\.url), using: appState.fileService) {
             appState.refreshCurrentTab()
-            if let nextID {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    tab.selectedItems = [nextID]
-                    scrollToID = nextID
+            if let nextName {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    if let item = tab.items.first(where: { $0.name == nextName }) {
+                        tab.selectedItems = [item.id]
+                        scrollToID = item.id
+                    }
                 }
             }
         }

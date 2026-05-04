@@ -133,20 +133,22 @@ struct ExplorerWindow: View {
                     guard !items.isEmpty else { return }
                     let allItems = tab.items
                     let deletedIDs = Set(items.map(\.id))
-                    var nextID: String?
+                    var nextName: String?
                     if let lastIndex = allItems.lastIndex(where: { deletedIDs.contains($0.id) }) {
                         if lastIndex + 1 < allItems.count, !deletedIDs.contains(allItems[lastIndex + 1].id) {
-                            nextID = allItems[lastIndex + 1].id
+                            nextName = allItems[lastIndex + 1].name
                         } else if let prev = allItems[0...lastIndex].last(where: { !deletedIDs.contains($0.id) }) {
-                            nextID = prev.id
+                            nextName = prev.name
                         }
                     }
                     TrashHelper.moveToTrash(items.map(\.url), using: appState.fileService) {
                         appState.refreshCurrentTab()
-                        if let nextID {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                tab.selectedItems = [nextID]
-                                appState.scrollToItemID = nextID
+                        if let nextName {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                if let item = tab.items.first(where: { $0.name == nextName }) {
+                                    tab.selectedItems = [item.id]
+                                    appState.scrollToItemID = item.id
+                                }
                             }
                         }
                     }
