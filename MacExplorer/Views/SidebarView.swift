@@ -20,59 +20,56 @@ struct SidebarView: View {
         return URL(fileURLWithPath: "/")
     }
 
+    @State private var scrollToPath: URL?
+
     var body: some View {
-        ScrollViewReader { proxy in
-            List(selection: Binding(
-                get: { tab.currentPath },
-                set: { url in
-                    if let url { appState.navigate(to: url) }
-                }
-            )) {
-                Section("Favorites") {
-                    ForEach(appState.fileService.sidebarLocations, id: \.url) { location in
-                        Label(location.name, systemImage: location.icon)
-                            .tag(location.url)
-                            .id(location.url)
-                            .dropDestination(for: URL.self) { urls, _ in
-                                moveFiles(urls, to: location.url)
-                                return true
+        List(selection: Binding(
+            get: { tab.currentPath },
+            set: { url in
+                if let url { appState.navigate(to: url) }
+            }
+        )) {
+            Section("Favorites") {
+                ForEach(appState.fileService.sidebarLocations, id: \.url) { location in
+                    Label(location.name, systemImage: location.icon)
+                        .tag(location.url)
+                        .dropDestination(for: URL.self) { urls, _ in
+                            moveFiles(urls, to: location.url)
+                            return true
+                        }
+                        .contextMenu {
+                            Button("Open in New Tab") {
+                                appState.addTab(path: location.url)
                             }
-                            .contextMenu {
-                                Button("Open in New Tab") {
-                                    appState.addTab(path: location.url)
-                                }
-                                Divider()
-                                Button("New Folder") {
-                                    createNewFolder(in: location.url)
-                                }
+                            Divider()
+                            Button("New Folder") {
+                                createNewFolder(in: location.url)
                             }
-                    }
-                }
-
-                Section("Volumes") {
-                    ForEach(appState.fileService.volumes, id: \.self) { volume in
-                        Label(volume.lastPathComponent, systemImage: "externaldrive")
-                            .tag(volume)
-                            .id(volume)
-                            .contextMenu {
-                                Button("Open in New Tab") {
-                                    appState.addTab(path: volume)
-                                }
-                            }
-                    }
-                }
-
-                Section("Folders") {
-                    FolderTreeNode(url: treeRoot, activePath: tab.currentPath, depth: 0)
+                        }
                 }
             }
-            .listStyle(.sidebar)
-            .onChange(of: tab.currentPath) {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    withAnimation {
-                        proxy.scrollTo(tab.currentPath, anchor: .center)
-                    }
+
+            Section("Volumes") {
+                ForEach(appState.fileService.volumes, id: \.self) { volume in
+                    Label(volume.lastPathComponent, systemImage: "externaldrive")
+                        .tag(volume)
+                        .contextMenu {
+                            Button("Open in New Tab") {
+                                appState.addTab(path: volume)
+                            }
+                        }
                 }
+            }
+
+            Section("Folders") {
+                FolderTreeNode(url: treeRoot, activePath: tab.currentPath, depth: 0)
+            }
+        }
+        .listStyle(.sidebar)
+        .background(SidebarScrollHelper(scrollToPath: $scrollToPath))
+        .onChange(of: tab.currentPath) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                scrollToPath = tab.currentPath
             }
         }
     }
@@ -265,5 +262,44 @@ struct FolderTreeNode: View {
             .filter(\.isDirectory)
             .map(\.url)
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+    }
+}
+
+/// Scrolls the sidebar's NSOutlineView to show the selected row.
+struct SidebarScrollHelper: NSViewRepresentable {
+    @Binding var scrollToPath: URL?
+
+    func makeNSView(context: Context) -> NSView {
+        NSView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard scrollToPath != nil else { return }
+        DispatchQueue.main.async {
+            self.scrollToPath = nil
+            guard let outlineView = findOutlineView(from: nsView) else { return }
+            let selectedRow = outlineView.selectedRow
+            if selectedRow >= 0 {
+                outlineView.scrollRowToVisible(selectedRow)
+            }
+        }
+    }
+
+    private func findOutlineView(from view: NSView) -> NSOutlineView? {
+        var current: NSView? = view
+        while let v = current {
+            if let outline = v as? NSOutlineView { return outline }
+            if let found = findInSubviews(v) { return found }
+            current = v.superview
+        }
+        return nil
+    }
+
+    private func findInSubviews(_ view: NSView) -> NSOutlineView? {
+        for subview in view.subviews {
+            if let outline = subview as? NSOutlineView { return outline }
+            if let found = findInSubviews(subview) { return found }
+        }
+        return nil
     }
 }
