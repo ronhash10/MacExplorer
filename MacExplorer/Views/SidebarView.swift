@@ -154,6 +154,7 @@ struct FolderTreeNode: View {
                         }
                     }
             }
+            .tag(url)
             .onAppear {
                 loadChildrenIfNeeded()
                 if isOnActivePath { isExpanded = true }
@@ -234,44 +235,27 @@ struct FolderTreeNode: View {
         guard !newName.isEmpty, newName != url.lastPathComponent else { return }
         let newURL = url.deletingLastPathComponent().appendingPathComponent(newName, isDirectory: true)
         try? FileManager.default.moveItem(at: url, to: newURL)
-        // Navigate to the renamed folder — this triggers onChange(of: activePath)
-        // on the parent node, which reloads its children
         appState.navigate(to: newURL.standardizedFileURL)
+        // Wait for tree to reload then scroll
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            Self.scrollSidebarToSelection()
+        }
     }
 
-    /// Walk all windows to find the sidebar NSOutlineView and scroll to the selected row.
+    /// Walk all windows to find NSOutlineView and scroll the selected row into view.
     static func scrollSidebarToSelection() {
-        let logPath = "/tmp/macexplorer-scroll.log"
-        func log(_ msg: String) {
-            let line = "\(Date()): \(msg)\n"
-            if let data = line.data(using: .utf8) {
-                if FileManager.default.fileExists(atPath: logPath) {
-                    let fh = FileHandle(forWritingAtPath: logPath)!
-                    fh.seekToEndOfFile()
-                    fh.write(data)
-                    fh.closeFile()
-                } else {
-                    try? data.write(to: URL(fileURLWithPath: logPath))
+        for window in NSApp.windows {
+            guard let contentView = window.contentView else { continue }
+            var outlines: [NSOutlineView] = []
+            Self.findAllOutlineViews(in: contentView, results: &outlines)
+            for outline in outlines {
+                let row = outline.selectedRow
+                if row >= 0 {
+                    outline.scrollRowToVisible(row)
+                    return
                 }
             }
         }
-
-        var foundOutlines: [NSOutlineView] = []
-        for window in NSApp.windows {
-            guard let contentView = window.contentView else { continue }
-            findAllOutlineViews(in: contentView, results: &foundOutlines)
-        }
-        log("Found \(foundOutlines.count) outline views")
-        for (i, outlineView) in foundOutlines.enumerated() {
-            let row = outlineView.selectedRow
-            log("  outline[\(i)]: rows=\(outlineView.numberOfRows) selected=\(row) frame=\(outlineView.frame)")
-            if row >= 0 {
-                outlineView.scrollRowToVisible(row)
-                log("  -> scrolled to row \(row)")
-                return
-            }
-        }
-        log("No selected row found in any outline view")
     }
 
     private static func findAllOutlineViews(in view: NSView, results: inout [NSOutlineView]) {
