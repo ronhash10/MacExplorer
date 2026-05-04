@@ -103,7 +103,7 @@ struct FileListView: View {
         .background(DoubleClickHandler {
             handleDoubleClick()
         })
-        .background(TableScrollHelper(scrollToID: $scrollToID, items: tab.items))
+        .background(TableScrollHelper(scrollToID: $scrollToID, items: filteredFolders + filteredFiles))
         .onChange(of: tab.currentPath) {
             appState.refreshCurrentTab()
         }
@@ -218,7 +218,7 @@ struct FileListView: View {
         TrashHelper.moveToTrash(items.map(\.url), using: appState.fileService) {
             appState.refreshCurrentTab()
             if let nextName {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     if let item = tab.items.first(where: { $0.name == nextName }) {
                         tab.selectedItems = [item.id]
                         scrollToID = item.id
