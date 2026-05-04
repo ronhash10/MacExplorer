@@ -54,12 +54,13 @@ struct ContentView: View {
 struct ResizableDivider: View {
     @Binding var width: CGFloat
     @State private var startWidth: CGFloat = 0
+    @State private var isDragging = false
 
     var body: some View {
         Rectangle()
-            .fill(Color(nsColor: .separatorColor))
+            .fill(isDragging ? Color.accentColor.opacity(0.5) : Color(nsColor: .separatorColor))
             .frame(width: 5)
-            .contentShape(Rectangle())
+            .contentShape(Rectangle().size(width: 11, height: .infinity))
             .onHover { hovering in
                 if hovering {
                     NSCursor.resizeLeftRight.push()
@@ -68,13 +69,20 @@ struct ResizableDivider: View {
                 }
             }
             .gesture(
-                DragGesture()
+                DragGesture(minimumDistance: 1, coordinateSpace: .global)
                     .onChanged { value in
-                        if startWidth == 0 { startWidth = width }
-                        let newWidth = max(200, min(900, startWidth - value.translation.width))
-                        width = newWidth
+                        if !isDragging {
+                            isDragging = true
+                            startWidth = width
+                        }
+                        var transaction = Transaction()
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) {
+                            width = max(200, min(900, startWidth - value.translation.width))
+                        }
                     }
                     .onEnded { _ in
+                        isDragging = false
                         startWidth = 0
                         UserDefaults.standard.set(width, forKey: "previewPaneWidth")
                     }
