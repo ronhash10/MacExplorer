@@ -15,8 +15,8 @@ final class FileItem: Identifiable, Hashable, Transferable {
     let icon: NSImage
 
     static var transferRepresentation: some TransferRepresentation {
-        FileRepresentation(exportedContentType: .fileURL) { item in
-            SentTransferredFile(item.url)
+        ProxyRepresentation { item in
+            item.url as URL
         }
     }
 
