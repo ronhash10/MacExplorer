@@ -225,9 +225,8 @@ struct FolderTreeNode: View {
         guard !newName.isEmpty, newName != url.lastPathComponent else { return }
         let newURL = url.deletingLastPathComponent().appendingPathComponent(newName)
         try? FileManager.default.moveItem(at: url, to: newURL)
-        if appState.currentTab?.currentPath.standardizedFileURL == url.standardizedFileURL {
-            appState.navigate(to: newURL)
-        }
+        // Navigate to the renamed folder so it becomes visible and highlighted
+        appState.navigate(to: newURL)
         appState.refreshCurrentTab()
     }
 
