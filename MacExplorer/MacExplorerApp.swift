@@ -131,8 +131,24 @@ struct ExplorerWindow: View {
                 if NSApp.keyWindow == findMyWindow(), let tab = appState.currentTab {
                     let items = tab.items.filter { tab.selectedItems.contains($0.id) }
                     guard !items.isEmpty else { return }
+                    let allItems = tab.items
+                    let deletedIDs = Set(items.map(\.id))
+                    var nextID: String?
+                    if let lastIndex = allItems.lastIndex(where: { deletedIDs.contains($0.id) }) {
+                        if lastIndex + 1 < allItems.count, !deletedIDs.contains(allItems[lastIndex + 1].id) {
+                            nextID = allItems[lastIndex + 1].id
+                        } else if let prev = allItems[0...lastIndex].last(where: { !deletedIDs.contains($0.id) }) {
+                            nextID = prev.id
+                        }
+                    }
                     TrashHelper.moveToTrash(items.map(\.url), using: appState.fileService) {
                         appState.refreshCurrentTab()
+                        if let nextID {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                tab.selectedItems = [nextID]
+                                appState.scrollToItemID = nextID
+                            }
+                        }
                     }
                 }
             }

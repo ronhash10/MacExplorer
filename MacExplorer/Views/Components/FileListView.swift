@@ -98,9 +98,7 @@ struct FileListView: View {
         .onDeleteCommand {
             let items = selectedFileItems
             guard !items.isEmpty else { return }
-            TrashHelper.moveToTrash(items.map(\.url), using: appState.fileService) {
-                appState.refreshCurrentTab()
-            }
+            trashAndSelectNext(items)
         }
         .background(DoubleClickHandler {
             handleDoubleClick()
@@ -203,6 +201,31 @@ struct FileListView: View {
     }
 
     // MARK: - Copy & Paste
+
+    private func trashAndSelectNext(_ items: [FileItem]) {
+        // Determine the next item to select after deletion
+        let allItems = filteredFolders + filteredFiles
+        let deletedIDs = Set(items.map(\.id))
+        var nextID: String?
+        if let lastIndex = allItems.lastIndex(where: { deletedIDs.contains($0.id) }) {
+            // Try item after last deleted
+            if lastIndex + 1 < allItems.count, !deletedIDs.contains(allItems[lastIndex + 1].id) {
+                nextID = allItems[lastIndex + 1].id
+            } else if let prev = allItems[0...lastIndex].last(where: { !deletedIDs.contains($0.id) }) {
+                nextID = prev.id
+            }
+        }
+
+        TrashHelper.moveToTrash(items.map(\.url), using: appState.fileService) {
+            appState.refreshCurrentTab()
+            if let nextID {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    tab.selectedItems = [nextID]
+                    scrollToID = nextID
+                }
+            }
+        }
+    }
 
     private func pasteFiles() {
         guard let urls = NSPasteboard.general.readObjects(forClasses: [NSURL.self], options: [
@@ -333,9 +356,7 @@ struct FileListView: View {
         Divider()
 
         Button("Move to Trash (\(items.count) item\(items.count == 1 ? "" : "s"))", role: .destructive) {
-            TrashHelper.moveToTrash(items.map(\.url), using: appState.fileService) {
-                appState.refreshCurrentTab()
-            }
+            trashAndSelectNext(items)
         }
     }
 }
