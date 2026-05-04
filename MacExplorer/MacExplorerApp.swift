@@ -22,6 +22,18 @@ struct MacExplorerApp: App {
                 .keyboardShortcut("w", modifiers: .command)
             }
 
+            CommandGroup(replacing: .pasteboard) {
+                Button("Copy") {
+                    NotificationCenter.default.post(name: .copyFiles, object: nil)
+                }
+                .keyboardShortcut("c", modifiers: .command)
+
+                Button("Paste") {
+                    NotificationCenter.default.post(name: .pasteFiles, object: nil)
+                }
+                .keyboardShortcut("v", modifiers: .command)
+            }
+
             CommandGroup(after: .toolbar) {
                 Button("Toggle Preview") {
                     NotificationCenter.default.post(name: .togglePreview, object: nil)
@@ -61,6 +73,8 @@ extension Notification.Name {
     static let navigateBack = Notification.Name("MacExplorer.navigateBack")
     static let navigateForward = Notification.Name("MacExplorer.navigateForward")
     static let moveToTrash = Notification.Name("MacExplorer.moveToTrash")
+    static let copyFiles = Notification.Name("MacExplorer.copyFiles")
+    static let pasteFiles = Notification.Name("MacExplorer.pasteFiles")
     static let settingsChanged = Notification.Name("MacExplorer.settingsChanged")
 }
 
@@ -122,6 +136,29 @@ struct ExplorerWindow: View {
                     }
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .copyFiles)) { _ in
+                if NSApp.keyWindow == findMyWindow(), let tab = appState.currentTab {
+                    let items = tab.items.filter { tab.selectedItems.contains($0.id) }
+                    guard !items.isEmpty else { return }
+                    let pb = NSPasteboard.general
+                    pb.clearContents()
+                    pb.writeObjects(items.map(\.url) as [NSURL])
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .pasteFiles)) { _ in
+                if NSApp.keyWindow == findMyWindow(), let tab = appState.currentTab {
+                    guard let urls = NSPasteboard.general.readObjects(forClasses: [NSURL.self], options: [
+                        .urlReadingFileURLsOnly: true
+                    ]) as? [URL], !urls.isEmpty else { return }
+                    let dest = tab.currentPath
+                    for url in urls {
+                        let target = dest.appendingPathComponent(url.lastPathComponent)
+                        let finalTarget = uniqueURL(for: target)
+                        try? FileManager.default.copyItem(at: url, to: finalTarget)
+                    }
+                    appState.refreshCurrentTab()
+                }
+            }
             .onReceive(NotificationCenter.default.publisher(for: .settingsChanged)) { _ in
                 appState.showPreview = UserDefaults.standard.object(forKey: "showPreview") as? Bool ?? true
                 appState.showHiddenFiles = UserDefaults.standard.bool(forKey: "showHiddenFiles")
@@ -174,6 +211,22 @@ struct ExplorerWindow: View {
                 appState.navigate(to: url)
                 return
             }
+        }
+    }
+
+    /// Returns a unique file URL by appending " copy", " copy 2", etc. if the target already exists.
+    private func uniqueURL(for url: URL) -> URL {
+        guard FileManager.default.fileExists(atPath: url.path) else { return url }
+        let dir = url.deletingLastPathComponent()
+        let ext = url.pathExtension
+        let baseName = ext.isEmpty ? url.lastPathComponent : url.deletingPathExtension().lastPathComponent
+        var counter = 0
+        while true {
+            let suffix = counter == 0 ? " copy" : " copy \(counter + 1)"
+            let newName = ext.isEmpty ? "\(baseName)\(suffix)" : "\(baseName)\(suffix).\(ext)"
+            let candidate = dir.appendingPathComponent(newName)
+            if !FileManager.default.fileExists(atPath: candidate.path) { return candidate }
+            counter += 1
         }
     }
 }

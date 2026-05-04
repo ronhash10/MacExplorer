@@ -197,12 +197,46 @@ struct FileListView: View {
         }
     }
 
+    // MARK: - Copy & Paste
+
+    private func pasteFiles() {
+        guard let urls = NSPasteboard.general.readObjects(forClasses: [NSURL.self], options: [
+            .urlReadingFileURLsOnly: true
+        ]) as? [URL], !urls.isEmpty else { return }
+        let dest = tab.currentPath
+        for url in urls {
+            let target = dest.appendingPathComponent(url.lastPathComponent)
+            let finalTarget = uniqueURL(for: target)
+            try? FileManager.default.copyItem(at: url, to: finalTarget)
+        }
+        appState.refreshCurrentTab()
+    }
+
+    private func uniqueURL(for url: URL) -> URL {
+        guard FileManager.default.fileExists(atPath: url.path) else { return url }
+        let dir = url.deletingLastPathComponent()
+        let ext = url.pathExtension
+        let baseName = ext.isEmpty ? url.lastPathComponent : url.deletingPathExtension().lastPathComponent
+        var counter = 0
+        while true {
+            let suffix = counter == 0 ? " copy" : " copy \(counter + 1)"
+            let newName = ext.isEmpty ? "\(baseName)\(suffix)" : "\(baseName)\(suffix).\(ext)"
+            let candidate = dir.appendingPathComponent(newName)
+            if !FileManager.default.fileExists(atPath: candidate.path) { return candidate }
+            counter += 1
+        }
+    }
+
     // MARK: - Context Menus
 
     @ViewBuilder
     private func backgroundContextMenu() -> some View {
         Button("New Folder") {
             createNewFolder(in: tab.currentPath)
+        }
+
+        Button("Paste") {
+            pasteFiles()
         }
 
         Divider()
@@ -260,6 +294,18 @@ struct FileListView: View {
 
         Button("New Folder Here") {
             createNewFolder(in: tab.currentPath)
+        }
+
+        Divider()
+
+        Button("Copy") {
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            pb.writeObjects(items.map(\.url) as [NSURL])
+        }
+
+        Button("Paste") {
+            pasteFiles()
         }
 
         Divider()
