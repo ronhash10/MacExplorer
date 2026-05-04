@@ -127,9 +127,6 @@ struct FolderTreeNode: View {
                             onCancel: { isRenaming = false }
                         )
                     }
-                    .onTapGesture {
-                        appState.navigate(to: url)
-                    }
                     .dropDestination(for: URL.self) { urls, _ in
                         moveFiles(urls, to: url)
                         return true
@@ -174,9 +171,6 @@ struct FolderTreeNode: View {
                         onCommit: { commitRename() },
                         onCancel: { isRenaming = false }
                     )
-                }
-                .onTapGesture {
-                    appState.navigate(to: url)
                 }
                 .dropDestination(for: URL.self) { urls, _ in
                     moveFiles(urls, to: url)
