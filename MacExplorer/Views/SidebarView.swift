@@ -99,6 +99,8 @@ struct FolderTreeNode: View {
     @State private var children: [URL] = []
     @State private var isLoaded = false
     @State private var isExpanded = false
+    @State private var isRenaming = false
+    @State private var renameText = ""
 
     private static let maxDepth = 10
 
@@ -117,6 +119,13 @@ struct FolderTreeNode: View {
                 Label(url.lastPathComponent, systemImage: isOnActivePath ? "folder.fill" : "folder")
                     .tag(url)
                     .fontWeight(url.standardizedFileURL == activePath.standardizedFileURL ? .bold : .regular)
+                    .popover(isPresented: $isRenaming, arrowEdge: .trailing) {
+                        RenamePopoverContent(
+                            text: $renameText,
+                            onCommit: { commitRename() },
+                            onCancel: { isRenaming = false }
+                        )
+                    }
                     .onTapGesture {
                         appState.navigate(to: url)
                     }
@@ -129,6 +138,10 @@ struct FolderTreeNode: View {
                             appState.addTab(path: url)
                         }
                         Divider()
+                        Button("Rename") {
+                            renameText = url.lastPathComponent
+                            isRenaming = true
+                        }
                         Button("New Folder") {
                             createNewFolder(in: url)
                         }
@@ -153,6 +166,13 @@ struct FolderTreeNode: View {
         } else {
             Label(url.lastPathComponent, systemImage: "folder")
                 .tag(url)
+                .popover(isPresented: $isRenaming, arrowEdge: .trailing) {
+                    RenamePopoverContent(
+                        text: $renameText,
+                        onCommit: { commitRename() },
+                        onCancel: { isRenaming = false }
+                    )
+                }
                 .onTapGesture {
                     appState.navigate(to: url)
                 }
@@ -165,6 +185,10 @@ struct FolderTreeNode: View {
                         appState.addTab(path: url)
                     }
                     Divider()
+                    Button("Rename") {
+                        renameText = url.lastPathComponent
+                        isRenaming = true
+                    }
                     Button("New Folder") {
                         createNewFolder(in: url)
                     }
@@ -191,6 +215,18 @@ struct FolderTreeNode: View {
             let target = destination.appendingPathComponent(url.lastPathComponent)
             guard url.deletingLastPathComponent().standardizedFileURL != destination.standardizedFileURL else { continue }
             try? FileManager.default.moveItem(at: url, to: target)
+        }
+        appState.refreshCurrentTab()
+    }
+
+    private func commitRename() {
+        isRenaming = false
+        let newName = renameText.trimmingCharacters(in: .whitespaces)
+        guard !newName.isEmpty, newName != url.lastPathComponent else { return }
+        let newURL = url.deletingLastPathComponent().appendingPathComponent(newName)
+        try? FileManager.default.moveItem(at: url, to: newURL)
+        if appState.currentTab?.currentPath.standardizedFileURL == url.standardizedFileURL {
+            appState.navigate(to: newURL)
         }
         appState.refreshCurrentTab()
     }
