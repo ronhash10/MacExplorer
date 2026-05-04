@@ -105,6 +105,7 @@ struct TabItemView: View {
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.borderless)
+            .focusable(false)
             .opacity(isHovering || isActive ? 1 : 0)
         }
         .padding(.horizontal, 10)
@@ -122,6 +123,7 @@ struct TabItemView: View {
                 : nil
         )
         .onTapGesture(perform: onSelect)
+        .focusable(false)
         .onHover { hovering in
             isHovering = hovering
         }
