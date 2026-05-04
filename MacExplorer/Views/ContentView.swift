@@ -2,6 +2,10 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(AppState.self) private var appState
+    @State private var previewWidth: CGFloat = {
+        let saved = UserDefaults.standard.double(forKey: "previewPaneWidth")
+        return saved > 0 ? saved : 350
+    }()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -22,15 +26,16 @@ struct ContentView: View {
                     BreadcrumbBar(tab: tab)
                     Divider()
 
-                    HSplitView {
+                    HStack(spacing: 0) {
                         FileListView(tab: tab)
-                        PreviewPane(tab: tab)
-                            .frame(
-                                minWidth: appState.showPreview ? 200 : 0,
-                                idealWidth: appState.showPreview ? 400 : 0,
-                                maxWidth: appState.showPreview ? 900 : 0
-                            )
-                            .opacity(appState.showPreview ? 1 : 0)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                        if appState.showPreview {
+                            ResizableDivider(width: $previewWidth)
+                            PreviewPane(tab: tab)
+                                .frame(width: previewWidth)
+                                .frame(maxHeight: .infinity)
+                        }
                     }
 
                     Divider()
@@ -42,5 +47,37 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+}
+
+/// Draggable divider for resizing the preview pane.
+struct ResizableDivider: View {
+    @Binding var width: CGFloat
+    @State private var startWidth: CGFloat = 0
+
+    var body: some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor))
+            .frame(width: 5)
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                if hovering {
+                    NSCursor.resizeLeftRight.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        if startWidth == 0 { startWidth = width }
+                        let newWidth = max(200, min(900, startWidth - value.translation.width))
+                        width = newWidth
+                    }
+                    .onEnded { _ in
+                        startWidth = 0
+                        UserDefaults.standard.set(width, forKey: "previewPaneWidth")
+                    }
+            )
     }
 }
