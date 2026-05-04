@@ -31,6 +31,10 @@ struct SidebarView: View {
                 ForEach(appState.fileService.sidebarLocations, id: \.url) { location in
                     Label(location.name, systemImage: location.icon)
                         .tag(location.url)
+                        .dropDestination(for: URL.self) { urls, _ in
+                            moveFiles(urls, to: location.url)
+                            return true
+                        }
                         .contextMenu {
                             Button("Open in New Tab") {
                                 appState.addTab(path: location.url)
@@ -74,6 +78,15 @@ struct SidebarView: View {
         appState.navigate(to: parentURL)
         appState.pendingRenameFolder = name
     }
+
+    private func moveFiles(_ urls: [URL], to destination: URL) {
+        for url in urls {
+            let target = destination.appendingPathComponent(url.lastPathComponent)
+            guard url.deletingLastPathComponent().standardizedFileURL != destination.standardizedFileURL else { continue }
+            try? FileManager.default.moveItem(at: url, to: target)
+        }
+        appState.refreshCurrentTab()
+    }
 }
 
 /// A recursive folder tree node that auto-expands along the active path.
@@ -107,6 +120,10 @@ struct FolderTreeNode: View {
                     .onTapGesture {
                         appState.navigate(to: url)
                     }
+                    .dropDestination(for: URL.self) { urls, _ in
+                        moveFiles(urls, to: url)
+                        return true
+                    }
                     .contextMenu {
                         Button("Open in New Tab") {
                             appState.addTab(path: url)
@@ -139,6 +156,10 @@ struct FolderTreeNode: View {
                 .onTapGesture {
                     appState.navigate(to: url)
                 }
+                .dropDestination(for: URL.self) { urls, _ in
+                    moveFiles(urls, to: url)
+                    return true
+                }
                 .contextMenu {
                     Button("Open in New Tab") {
                         appState.addTab(path: url)
@@ -163,6 +184,15 @@ struct FolderTreeNode: View {
             }
             appState.refreshCurrentTab()
         }
+    }
+
+    private func moveFiles(_ urls: [URL], to destination: URL) {
+        for url in urls {
+            let target = destination.appendingPathComponent(url.lastPathComponent)
+            guard url.deletingLastPathComponent().standardizedFileURL != destination.standardizedFileURL else { continue }
+            try? FileManager.default.moveItem(at: url, to: target)
+        }
+        appState.refreshCurrentTab()
     }
 
     private func createNewFolder(in parentURL: URL) {
