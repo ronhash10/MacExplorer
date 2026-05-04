@@ -22,14 +22,12 @@ struct ContentView: View {
                     BreadcrumbBar(tab: tab)
                     Divider()
 
-                    if appState.showPreview {
-                        HSplitView {
-                            FileListView(tab: tab)
+                    HSplitView {
+                        FileListView(tab: tab)
+                        if appState.showPreview {
                             PreviewPane(tab: tab)
                                 .frame(minWidth: 200, idealWidth: 400, maxWidth: 900)
                         }
-                    } else {
-                        FileListView(tab: tab)
                     }
 
                     Divider()
