@@ -20,6 +20,8 @@ final class AppState {
     var shouldClose: Bool = false
     /// Set by sidebar to request the file list start renaming a newly created folder by name
     var pendingRenameFolder: String?
+    /// Set to scroll the file list to a specific item (e.g. after paste)
+    var scrollToItemID: String?
 
     let fileService = FileSystemService()
 

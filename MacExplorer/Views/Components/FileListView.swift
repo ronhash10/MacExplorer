@@ -121,6 +121,11 @@ struct FileListView: View {
                 }
             }
         }
+        .onChange(of: appState.scrollToItemID) { _, itemID in
+            guard let itemID else { return }
+            appState.scrollToItemID = nil
+            scrollToID = itemID
+        }
     }
 
     // MARK: - Rename
@@ -204,12 +209,23 @@ struct FileListView: View {
             .urlReadingFileURLsOnly: true
         ]) as? [URL], !urls.isEmpty else { return }
         let dest = tab.currentPath
+        var pastedNames: [String] = []
         for url in urls {
             let target = dest.appendingPathComponent(url.lastPathComponent)
             let finalTarget = uniqueURL(for: target)
             try? FileManager.default.copyItem(at: url, to: finalTarget)
+            pastedNames.append(finalTarget.lastPathComponent)
         }
         appState.refreshCurrentTab()
+        // Select and scroll to last pasted file
+        if let lastName = pastedNames.last {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                if let item = tab.items.first(where: { $0.name == lastName }) {
+                    tab.selectedItems = Set(tab.items.filter { pastedNames.contains($0.name) }.map(\.id))
+                    scrollToID = item.id
+                }
+            }
+        }
     }
 
     private func uniqueURL(for url: URL) -> URL {
