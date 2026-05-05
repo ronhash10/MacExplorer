@@ -14,6 +14,12 @@ struct SidebarView: View {
     @State private var renameText: String = ""
     /// Reload counter to force tree refresh
     @State private var reloadToken: Int = 0
+    /// Cache of directory children to avoid repeated filesystem reads
+    @State private var childrenCache: [String: [URL]] = [:]
+    /// Delete confirmation
+    @State private var folderToDelete: URL?
+    @State private var showDeleteConfirmation = false
+    @State private var deleteConfirmationMessage = ""
 
     private var treeRoot: URL {
         let home = FileManager.default.homeDirectoryForCurrentUser
@@ -38,12 +44,11 @@ struct SidebarView: View {
 
     /// Flatten the tree: only include children of expanded nodes
     private var visibleNodes: [FlatNode] {
-        // Access reloadToken to trigger recomputation
         _ = reloadToken
         var result: [FlatNode] = []
         func visit(_ url: URL, depth: Int) {
             let stdPath = url.standardizedFileURL.path
-            let children = loadChildren(of: url)
+            let children = cachedChildren(of: url)
             result.append(FlatNode(url: url, depth: depth, hasChildren: !children.isEmpty))
             if expandedPaths.contains(stdPath) {
                 for child in children {
@@ -55,11 +60,34 @@ struct SidebarView: View {
         return result
     }
 
+    /// Load children with caching to avoid repeated I/O
+    private func cachedChildren(of url: URL) -> [URL] {
+        let key = url.standardizedFileURL.path
+        if let cached = childrenCache[key] {
+            return cached
+        }
+        let children = loadChildren(of: url)
+        // Mutate cache on main queue after current render
+        DispatchQueue.main.async {
+            childrenCache[key] = children
+        }
+        return children
+    }
+
     private func loadChildren(of url: URL) -> [URL] {
         appState.fileService.contentsOfDirectory(at: url)
             .filter(\.isDirectory)
             .map(\.url)
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
+    /// Invalidate cache for a specific path (e.g. after rename, create, move)
+    private func invalidateCache(for url: URL? = nil) {
+        if let url {
+            childrenCache.removeValue(forKey: url.standardizedFileURL.path)
+        } else {
+            childrenCache.removeAll()
+        }
     }
 
     /// Ensure all ancestors of a path are expanded
@@ -68,7 +96,6 @@ struct SidebarView: View {
         let targetPath = targetURL.standardizedFileURL.path
         guard targetPath.hasPrefix(rootPath) else { return }
 
-        // Walk from root to target, expanding each ancestor
         var current = treeRoot.standardizedFileURL
         expandedPaths.insert(current.path)
         let rootComponents = treeRoot.standardizedFileURL.pathComponents
@@ -93,7 +120,7 @@ struct SidebarView: View {
                             depth: 0,
                             isSelected: tab.currentPath.standardizedFileURL == location.url.standardizedFileURL
                         )
-                        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                        .onDrop(of: [.url, .fileURL], isTargeted: nil) { providers in
                             handleDrop(providers: providers, destination: location.url)
                         }
                         .contextMenu {
@@ -118,7 +145,7 @@ struct SidebarView: View {
                         }
                     }
 
-                    // MARK: Folders tree (VStack, not LazyVStack, so ScrollViewReader can find all IDs)
+                    // MARK: Folders tree
                     sidebarSectionHeader("Folders")
                     ForEach(visibleNodes) { node in
                         folderRow(node: node)
@@ -144,6 +171,20 @@ struct SidebarView: View {
                     }
                 }
             }
+            .onDeleteCommand {
+                confirmDelete(folder: tab.currentPath)
+            }
+        }
+        .alert("Move to Trash", isPresented: $showDeleteConfirmation) {
+            Button("Cancel", role: .cancel) { folderToDelete = nil }
+            Button("Move to Trash", role: .destructive) {
+                if let folder = folderToDelete {
+                    trashFolder(folder)
+                    folderToDelete = nil
+                }
+            }
+        } message: {
+            Text(deleteConfirmationMessage)
         }
     }
 
@@ -166,7 +207,6 @@ struct SidebarView: View {
     @ViewBuilder
     private func sidebarRow(label: String, icon: String, url: URL, depth: Int, isSelected: Bool) -> some View {
         HStack(spacing: 4) {
-            // No chevron for non-tree items
             Color.clear.frame(width: 16, height: 16)
             Image(systemName: icon)
                 .foregroundStyle(.secondary)
@@ -260,7 +300,7 @@ struct SidebarView: View {
                 onCancel: { renamingURL = nil }
             )
         }
-        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+        .onDrop(of: [.url, .fileURL], isTargeted: nil) { providers in
             handleDrop(providers: providers, destination: node.url)
         }
         .contextMenu {
@@ -272,18 +312,37 @@ struct SidebarView: View {
             }
             Button("New Folder") { createNewFolder(in: node.url) }
             Divider()
-            Button("Move to Trash", role: .destructive) { trashFolder(node.url) }
+            Button("Move to Trash", role: .destructive) { confirmDelete(folder: node.url) }
         }
     }
 
     // MARK: - Actions
+
+    private func confirmDelete(folder: URL) {
+        // Don't allow deleting the tree root or home
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        guard folder.standardizedFileURL != home.standardizedFileURL,
+              folder.standardizedFileURL != treeRoot.standardizedFileURL else { return }
+
+        let contents = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        let itemCount = contents.filter { !$0.hasPrefix(".") }.count
+
+        folderToDelete = folder
+        if itemCount > 0 {
+            deleteConfirmationMessage = "\"\(folder.lastPathComponent)\" contains \(itemCount) item\(itemCount == 1 ? "" : "s"). Are you sure you want to move it to the Trash?"
+        } else {
+            deleteConfirmationMessage = "Are you sure you want to move \"\(folder.lastPathComponent)\" to the Trash?"
+        }
+        showDeleteConfirmation = true
+    }
 
     private func commitRename(from oldURL: URL) {
         renamingURL = nil
         let newName = renameText.trimmingCharacters(in: .whitespaces)
         guard !newName.isEmpty, newName != oldURL.lastPathComponent else { return }
         let newURL = oldURL.deletingLastPathComponent().appendingPathComponent(newName, isDirectory: true)
-        try? FileManager.default.moveItem(at: oldURL, to: newURL)
+
+        guard appState.renameWithUndo(at: oldURL, to: newName) != nil else { return }
 
         // Update expanded paths: replace old path with new
         let oldPath = oldURL.standardizedFileURL.path
@@ -294,10 +353,15 @@ struct SidebarView: View {
             expandedPaths.insert(path.replacingOccurrences(of: oldPath, with: newPath))
         }
 
-        // Force reload of tree data
+        invalidateCache()
         reloadToken += 1
 
-        appState.navigate(to: newURL.standardizedFileURL)
+        // Refresh file list if the renamed folder's parent is currently displayed
+        let parentPath = oldURL.deletingLastPathComponent().standardizedFileURL
+        if tab.currentPath.standardizedFileURL == parentPath {
+            appState.refreshCurrentTab()
+        }
+
         appState.sidebarScrollTarget = newURL.standardizedFileURL
     }
 
@@ -309,32 +373,39 @@ struct SidebarView: View {
             counter += 1
             name = "\(baseName) \(counter)"
         }
-        _ = try? appState.fileService.createFolder(at: parentURL, name: name)
-        // Force reload of tree
+        guard appState.createFolderWithUndo(at: parentURL, name: name) != nil else { return }
+        invalidateCache(for: parentURL)
         reloadToken += 1
-        // Ensure parent is expanded
         expandedPaths.insert(parentURL.standardizedFileURL.path)
-        appState.navigate(to: parentURL)
-        appState.pendingRenameFolder = name
-    }
 
-    private func trashFolder(_ folderURL: URL) {
-        TrashHelper.moveToTrash([folderURL], using: appState.fileService) {
-            if appState.currentTab?.currentPath.standardizedFileURL.path
-                .hasPrefix(folderURL.standardizedFileURL.path) == true {
-                appState.navigate(to: folderURL.deletingLastPathComponent())
-            }
-            reloadToken += 1
+        // Open rename popover on the new folder in the sidebar
+        let newFolderURL = parentURL.appendingPathComponent(name)
+        renameText = name
+        renamingURL = newFolderURL
+
+        // Refresh file list if we're already viewing this parent
+        if tab.currentPath.standardizedFileURL == parentURL.standardizedFileURL {
             appState.refreshCurrentTab()
         }
     }
 
-    private func moveFiles(_ urls: [URL], to destination: URL) {
-        for url in urls {
-            let target = destination.appendingPathComponent(url.lastPathComponent)
-            guard url.deletingLastPathComponent().standardizedFileURL != destination.standardizedFileURL else { continue }
-            try? FileManager.default.moveItem(at: url, to: target)
+    private func trashFolder(_ folderURL: URL) {
+        appState.trashWithUndo(urls: [folderURL])
+        if appState.currentTab?.currentPath.standardizedFileURL.path
+            .hasPrefix(folderURL.standardizedFileURL.path) == true {
+            appState.navigate(to: folderURL.deletingLastPathComponent())
         }
+        invalidateCache(for: folderURL.deletingLastPathComponent())
+        reloadToken += 1
+        appState.refreshCurrentTab()
+    }
+
+    private func moveFiles(_ urls: [URL], to destination: URL) {
+        appState.moveWithUndo(urls: urls, to: destination)
+        // Clear selection of moved items to prevent Table state corruption
+        let movedIDs = Set(urls.map { $0.absoluteString })
+        tab.selectedItems.subtract(movedIDs)
+        invalidateCache(for: destination)
         reloadToken += 1
         appState.refreshCurrentTab()
     }
@@ -342,13 +413,14 @@ struct SidebarView: View {
     private func handleDrop(providers: [NSItemProvider], destination: URL) -> Bool {
         var handled = false
         for provider in providers {
-            if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            if provider.canLoadObject(ofClass: NSURL.self) {
                 handled = true
-                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { data, _ in
-                    guard let data = data as? Data,
-                          let url = URL(dataRepresentation: data, relativeTo: nil, isAbsolute: true) else { return }
+                _ = provider.loadObject(ofClass: NSURL.self) { reading, _ in
+                    guard let nsurl = reading as? NSURL,
+                          let url = nsurl as URL?,
+                          url.isFileURL else { return }
                     DispatchQueue.main.async {
-                        moveFiles([url], to: destination)
+                        self.moveFiles([url], to: destination)
                     }
                 }
             }

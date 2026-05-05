@@ -52,6 +52,7 @@ struct BreadcrumbBar: View {
                     }
                 }
             }
+            .focusable(false)
 
             Spacer()
 

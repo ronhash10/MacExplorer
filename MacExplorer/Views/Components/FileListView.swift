@@ -80,14 +80,14 @@ struct FileListView: View {
             Section {
                 ForEach(filteredFolders) { item in
                     TableRow(item)
-                        .draggable(item)
+                        .itemProvider { NSItemProvider(object: item.url as NSURL) }
                         .contextMenu { fileContextMenu(for: item) }
                 }
             }
             Section {
                 ForEach(filteredFiles) { item in
                     TableRow(item)
-                        .draggable(item)
+                        .itemProvider { NSItemProvider(object: item.url as NSURL) }
                         .contextMenu { fileContextMenu(for: item) }
                 }
             }
@@ -143,8 +143,7 @@ struct FileListView: View {
         renamingItemID = nil
         guard !newName.isEmpty, newName != item.name else { return }
 
-        let newURL = item.url.deletingLastPathComponent().appendingPathComponent(newName)
-        try? FileManager.default.moveItem(at: item.url, to: newURL)
+        appState.renameWithUndo(at: item.url, to: newName)
         appState.refreshCurrentTab()
     }
 
@@ -159,7 +158,7 @@ struct FileListView: View {
             name = "\(baseName) \(counter)"
         }
 
-        guard (try? appState.fileService.createFolder(at: parent, name: name)) != nil else { return }
+        guard appState.createFolderWithUndo(at: parent, name: name) != nil else { return }
         appState.refreshCurrentTab()
 
         // Find the new folder in refreshed items by matching the name and parent
@@ -205,7 +204,6 @@ struct FileListView: View {
     private func trashAndSelectNext(_ items: [FileItem]) {
         let allItems = filteredFolders + filteredFiles
         let deletedIDs = Set(items.map(\.id))
-        // Find the next item's name to select after deletion
         var nextName: String?
         if let lastIndex = allItems.lastIndex(where: { deletedIDs.contains($0.id) }) {
             if lastIndex + 1 < allItems.count, !deletedIDs.contains(allItems[lastIndex + 1].id) {
@@ -215,14 +213,29 @@ struct FileListView: View {
             }
         }
 
-        TrashHelper.moveToTrash(items.map(\.url), using: appState.fileService) {
-            appState.refreshCurrentTab()
-            if let nextName {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    if let item = tab.items.first(where: { $0.name == nextName }) {
-                        tab.selectedItems = [item.id]
-                        scrollToID = item.id
-                    }
+        // Check for non-empty folders
+        let nonEmptyFolders = items.filter { $0.isDirectory && !appState.fileService.isDirectoryEmpty($0.url) }
+        if !nonEmptyFolders.isEmpty {
+            let alert = NSAlert()
+            alert.messageText = "Move to Trash?"
+            if nonEmptyFolders.count == 1 {
+                alert.informativeText = "\"\(nonEmptyFolders[0].name)\" is not empty. Are you sure?"
+            } else {
+                alert.informativeText = "\(nonEmptyFolders.count) folders are not empty. Are you sure?"
+            }
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Move to Trash")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+
+        appState.trashWithUndo(urls: items.map(\.url))
+        appState.refreshCurrentTab()
+        if let nextName {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                if let item = tab.items.first(where: { $0.name == nextName }) {
+                    tab.selectedItems = [item.id]
+                    scrollToID = item.id
                 }
             }
         }
@@ -233,37 +246,16 @@ struct FileListView: View {
             .urlReadingFileURLsOnly: true
         ]) as? [URL], !urls.isEmpty else { return }
         let dest = tab.currentPath
-        var pastedNames: [String] = []
-        for url in urls {
-            let target = dest.appendingPathComponent(url.lastPathComponent)
-            let finalTarget = uniqueURL(for: target)
-            try? FileManager.default.copyItem(at: url, to: finalTarget)
-            pastedNames.append(finalTarget.lastPathComponent)
-        }
+        let pastedURLs = appState.pasteWithUndo(urls: urls, to: dest)
         appState.refreshCurrentTab()
-        // Select and scroll to last pasted file
-        if let lastName = pastedNames.last {
+        if let lastURL = pastedURLs.last {
+            let pastedNames = pastedURLs.map(\.lastPathComponent)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                if let item = tab.items.first(where: { $0.name == lastName }) {
+                if let item = tab.items.first(where: { $0.name == lastURL.lastPathComponent }) {
                     tab.selectedItems = Set(tab.items.filter { pastedNames.contains($0.name) }.map(\.id))
                     scrollToID = item.id
                 }
             }
-        }
-    }
-
-    private func uniqueURL(for url: URL) -> URL {
-        guard FileManager.default.fileExists(atPath: url.path) else { return url }
-        let dir = url.deletingLastPathComponent()
-        let ext = url.pathExtension
-        let baseName = ext.isEmpty ? url.lastPathComponent : url.deletingPathExtension().lastPathComponent
-        var counter = 0
-        while true {
-            let suffix = counter == 0 ? " copy" : " copy \(counter + 1)"
-            let newName = ext.isEmpty ? "\(baseName)\(suffix)" : "\(baseName)\(suffix).\(ext)"
-            let candidate = dir.appendingPathComponent(newName)
-            if !FileManager.default.fileExists(atPath: candidate.path) { return candidate }
-            counter += 1
         }
     }
 

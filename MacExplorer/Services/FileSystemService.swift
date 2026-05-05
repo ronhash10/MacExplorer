@@ -38,9 +38,12 @@ final class FileSystemService {
                isDir.boolValue
     }
 
-    /// Move item to trash.
-    func moveToTrash(_ url: URL) throws {
-        try fileManager.trashItem(at: url, resultingItemURL: nil)
+    /// Move item to trash. Returns the URL of the item in the Trash (for undo).
+    @discardableResult
+    func moveToTrash(_ url: URL) throws -> URL? {
+        var resultURL: NSURL?
+        try fileManager.trashItem(at: url, resultingItemURL: &resultURL)
+        return resultURL as URL?
     }
 
     /// Check if a directory contains any items.

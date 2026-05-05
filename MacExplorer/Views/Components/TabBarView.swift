@@ -43,6 +43,10 @@ struct TabBarView: View {
                                 windowID: appState.windowID,
                                 onSelect: {
                                     appState.activeTabID = tab.id
+                                    // Refresh in background to catch filesystem changes
+                                    DispatchQueue.main.async {
+                                        appState.refreshCurrentTab()
+                                    }
                                 },
                                 onClose: {
                                     appState.closeTab(tab.id)

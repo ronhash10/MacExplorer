@@ -10,6 +10,18 @@ struct MacExplorerApp: App {
                 .frame(minWidth: 800, minHeight: 500)
         }
         .commands {
+            CommandGroup(replacing: .undoRedo) {
+                Button("Undo") {
+                    NotificationCenter.default.post(name: .undoAction, object: nil)
+                }
+                .keyboardShortcut("z", modifiers: .command)
+
+                Button("Redo") {
+                    NotificationCenter.default.post(name: .redoAction, object: nil)
+                }
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+            }
+
             CommandGroup(after: .newItem) {
                 Button("New Tab") {
                     NotificationCenter.default.post(name: .newTab, object: nil)
@@ -76,6 +88,8 @@ extension Notification.Name {
     static let copyFiles = Notification.Name("MacExplorer.copyFiles")
     static let pasteFiles = Notification.Name("MacExplorer.pasteFiles")
     static let settingsChanged = Notification.Name("MacExplorer.settingsChanged")
+    static let undoAction = Notification.Name("MacExplorer.undo")
+    static let redoAction = Notification.Name("MacExplorer.redo")
 }
 
 /// Each window gets its own AppState, registered with the global WindowManager.
@@ -141,14 +155,30 @@ struct ExplorerWindow: View {
                             nextName = prev.name
                         }
                     }
-                    TrashHelper.moveToTrash(items.map(\.url), using: appState.fileService) {
-                        appState.refreshCurrentTab()
-                        if let nextName {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                if let item = tab.items.first(where: { $0.name == nextName }) {
-                                    tab.selectedItems = [item.id]
-                                    appState.scrollToItemID = item.id
-                                }
+                    // Check for non-empty folders before trashing
+                    let nonEmptyFolders = items.filter { item in
+                        item.isDirectory && !appState.fileService.isDirectoryEmpty(item.url)
+                    }
+                    if !nonEmptyFolders.isEmpty {
+                        let alert = NSAlert()
+                        alert.messageText = "Move to Trash?"
+                        if nonEmptyFolders.count == 1 {
+                            alert.informativeText = "\"\(nonEmptyFolders[0].name)\" is not empty. Are you sure?"
+                        } else {
+                            alert.informativeText = "\(nonEmptyFolders.count) folders are not empty. Are you sure?"
+                        }
+                        alert.alertStyle = .warning
+                        alert.addButton(withTitle: "Move to Trash")
+                        alert.addButton(withTitle: "Cancel")
+                        guard alert.runModal() == .alertFirstButtonReturn else { return }
+                    }
+                    appState.trashWithUndo(urls: items.map(\.url))
+                    appState.refreshCurrentTab()
+                    if let nextName {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                            if let item = tab.items.first(where: { $0.name == nextName }) {
+                                tab.selectedItems = [item.id]
+                                appState.scrollToItemID = item.id
                             }
                         }
                     }
@@ -169,17 +199,12 @@ struct ExplorerWindow: View {
                         .urlReadingFileURLsOnly: true
                     ]) as? [URL], !urls.isEmpty else { return }
                     let dest = tab.currentPath
-                    var pastedNames: [String] = []
-                    for url in urls {
-                        let target = dest.appendingPathComponent(url.lastPathComponent)
-                        let finalTarget = uniqueURL(for: target)
-                        try? FileManager.default.copyItem(at: url, to: finalTarget)
-                        pastedNames.append(finalTarget.lastPathComponent)
-                    }
+                    let pastedURLs = appState.pasteWithUndo(urls: urls, to: dest)
                     appState.refreshCurrentTab()
-                    if let lastName = pastedNames.last {
+                    if let lastURL = pastedURLs.last {
+                        let pastedNames = pastedURLs.map(\.lastPathComponent)
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                            if let item = tab.items.first(where: { $0.name == lastName }) {
+                            if let item = tab.items.first(where: { $0.name == lastURL.lastPathComponent }) {
                                 tab.selectedItems = Set(tab.items.filter { pastedNames.contains($0.name) }.map(\.id))
                                 appState.scrollToItemID = item.id
                             }
@@ -190,6 +215,16 @@ struct ExplorerWindow: View {
             .onReceive(NotificationCenter.default.publisher(for: .settingsChanged)) { _ in
                 appState.showPreview = UserDefaults.standard.object(forKey: "showPreview") as? Bool ?? true
                 appState.showHiddenFiles = UserDefaults.standard.bool(forKey: "showHiddenFiles")
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .undoAction)) { _ in
+                if NSApp.keyWindow == findMyWindow(), appState.undoManager.canUndo {
+                    appState.undoManager.undo()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .redoAction)) { _ in
+                if NSApp.keyWindow == findMyWindow(), appState.undoManager.canRedo {
+                    appState.undoManager.redo()
+                }
             }
             .alert("Full Disk Access Required", isPresented: $showFullDiskAccessAlert) {
                 Button("Open System Settings") {
@@ -239,22 +274,6 @@ struct ExplorerWindow: View {
                 appState.navigate(to: url)
                 return
             }
-        }
-    }
-
-    /// Returns a unique file URL by appending " copy", " copy 2", etc. if the target already exists.
-    private func uniqueURL(for url: URL) -> URL {
-        guard FileManager.default.fileExists(atPath: url.path) else { return url }
-        let dir = url.deletingLastPathComponent()
-        let ext = url.pathExtension
-        let baseName = ext.isEmpty ? url.lastPathComponent : url.deletingPathExtension().lastPathComponent
-        var counter = 0
-        while true {
-            let suffix = counter == 0 ? " copy" : " copy \(counter + 1)"
-            let newName = ext.isEmpty ? "\(baseName)\(suffix)" : "\(baseName)\(suffix).\(ext)"
-            let candidate = dir.appendingPathComponent(newName)
-            if !FileManager.default.fileExists(atPath: candidate.path) { return candidate }
-            counter += 1
         }
     }
 }
