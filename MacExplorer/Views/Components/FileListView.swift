@@ -100,6 +100,11 @@ struct FileListView: View {
             guard !items.isEmpty else { return }
             trashAndSelectNext(items)
         }
+        .onKeyPress(.return) {
+            guard renamingItemID == nil else { return .ignored }
+            handleDoubleClick()
+            return .handled
+        }
         .background(DoubleClickHandler {
             handleDoubleClick()
         })
