@@ -16,6 +16,8 @@ struct SidebarView: View {
     @State private var reloadToken: Int = 0
     /// Cache of directory children to avoid repeated filesystem reads
     @State private var childrenCache: [String: [URL]] = [:]
+    /// Tracks which folder path is currently a drop target
+    @State private var dropTargetPath: String?
     /// Delete confirmation
     @State private var folderToDelete: URL?
     @State private var showDeleteConfirmation = false
@@ -276,7 +278,8 @@ struct SidebarView: View {
         .padding(.leading, CGFloat(node.depth) * 16)
         .background(
             RoundedRectangle(cornerRadius: 5)
-                .fill(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
+                .fill(dropTargetPath == stdPath ? Color.accentColor.opacity(0.35) :
+                      isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
                 .padding(.horizontal, 4)
         )
         .contentShape(Rectangle())
@@ -300,7 +303,13 @@ struct SidebarView: View {
                 onCancel: { renamingURL = nil }
             )
         }
-        .onDrop(of: [.url, .fileURL], isTargeted: nil) { providers in
+        .onDrop(of: [.url, .fileURL], isTargeted: Binding(
+            get: { dropTargetPath == stdPath },
+            set: { targeted in
+                if targeted { dropTargetPath = stdPath }
+                else if dropTargetPath == stdPath { dropTargetPath = nil }
+            }
+        )) { providers in
             handleDrop(providers: providers, destination: node.url)
         }
         .contextMenu {
