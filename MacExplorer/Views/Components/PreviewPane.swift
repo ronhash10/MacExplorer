@@ -141,18 +141,47 @@ struct FileTypePreview: View {
         "r", "lua", "perl", "pl", "groovy", "gradle"
     ]
 
+    /// Maximum file size for text-based previews (10 MB)
+    private static let maxPreviewSize: Int64 = 10 * 1024 * 1024
+
+    private var fileSize: Int64 {
+        (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
+    }
+
     var body: some View {
         if ext == "html" || ext == "htm" {
             WebKitPreview(url: url)
         } else if ext == "csv" || ext == "tsv" {
-            CSVPreview(url: url)
+            if fileSize > Self.maxPreviewSize {
+                fileTooLargeView
+            } else {
+                CSVPreview(url: url)
+            }
         } else if ext == "xlsx" {
             XLSXPreview(url: url)
         } else if Self.codeExtensions.contains(ext) || isCodeByFilename {
-            CodePreview(url: url)
+            if fileSize > Self.maxPreviewSize {
+                fileTooLargeView
+            } else {
+                CodePreview(url: url)
+            }
         } else {
             QuickLookPreview(url: url)
         }
+    }
+
+    private var fileTooLargeView: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "doc.text")
+                .font(.system(size: 36))
+                .foregroundStyle(.secondary)
+            Text("File too large to preview")
+                .font(.headline)
+            Text("\(ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file))")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var isCodeByFilename: Bool {
