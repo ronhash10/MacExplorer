@@ -77,6 +77,31 @@ final class AppState {
 
     /// Move files to a destination folder with undo support.
     func moveWithUndo(urls: [URL], to destination: URL) {
+        // Check for conflicts first
+        var conflicting: [String] = []
+        for url in urls {
+            let target = destination.appendingPathComponent(url.lastPathComponent)
+            guard url.deletingLastPathComponent().standardizedFileURL != destination.standardizedFileURL else { continue }
+            if FileManager.default.fileExists(atPath: target.path) {
+                conflicting.append(url.lastPathComponent)
+            }
+        }
+        if !conflicting.isEmpty {
+            let alert = NSAlert()
+            alert.messageText = "File\(conflicting.count == 1 ? "" : "s") Already Exist\(conflicting.count == 1 ? "s" : "")"
+            if conflicting.count == 1 {
+                alert.informativeText = "\"\(conflicting[0])\" already exists in \"\(destination.lastPathComponent)\". The item was not moved."
+            } else {
+                let names = conflicting.prefix(5).map { "\"\($0)\"" }.joined(separator: ", ")
+                let extra = conflicting.count > 5 ? " and \(conflicting.count - 5) more" : ""
+                alert.informativeText = "\(names)\(extra) already exist in \"\(destination.lastPathComponent)\". The items were not moved."
+            }
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+
         var movedPairs: [(from: URL, to: URL)] = []
         for url in urls {
             let target = destination.appendingPathComponent(url.lastPathComponent)
@@ -94,7 +119,6 @@ final class AppState {
             }
             state.refreshCurrentTab()
             state.syncUndoState()
-            // Register redo
             state.undoManager.registerUndo(withTarget: state) { redoState in
                 redoState.moveWithUndo(urls: movedPairs.map(\.from), to: destination)
             }
