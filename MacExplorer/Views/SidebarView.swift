@@ -411,21 +411,30 @@ struct SidebarView: View {
     }
 
     private func handleDrop(providers: [NSItemProvider], destination: URL) -> Bool {
-        var handled = false
-        for provider in providers {
-            if provider.canLoadObject(ofClass: NSURL.self) {
-                handled = true
-                _ = provider.loadObject(ofClass: NSURL.self) { reading, _ in
-                    guard let nsurl = reading as? NSURL,
-                          let url = nsurl as URL?,
-                          url.isFileURL else { return }
+        let urlProviders = providers.filter { $0.canLoadObject(ofClass: NSURL.self) }
+        guard !urlProviders.isEmpty else { return false }
+
+        // Collect all URLs first, then move them together
+        var collectedURLs: [URL] = []
+        let group = DispatchGroup()
+        for provider in urlProviders {
+            group.enter()
+            _ = provider.loadObject(ofClass: NSURL.self) { reading, _ in
+                if let nsurl = reading as? NSURL, let url = nsurl as URL?, url.isFileURL {
                     DispatchQueue.main.async {
-                        self.moveFiles([url], to: destination)
+                        collectedURLs.append(url)
+                        group.leave()
                     }
+                } else {
+                    DispatchQueue.main.async { group.leave() }
                 }
             }
         }
-        return handled
+        group.notify(queue: .main) {
+            guard !collectedURLs.isEmpty else { return }
+            self.moveFiles(collectedURLs, to: destination)
+        }
+        return true
     }
 }
 
