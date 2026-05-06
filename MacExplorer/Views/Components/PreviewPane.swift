@@ -138,7 +138,8 @@ struct FileTypePreview: View {
         "rb", "rs", "php", "kt", "scala", "md", "txt", "log",
         "env", "conf", "ini", "cfg", "properties",
         "dockerfile", "makefile", "cmake",
-        "r", "lua", "perl", "pl", "groovy", "gradle"
+        "r", "lua", "perl", "pl", "groovy", "gradle",
+        "eml", "mbox"
     ]
 
     /// Maximum file size for text-based previews (10 MB)
