@@ -13,6 +13,7 @@ final class FileItem: Identifiable, Hashable, Transferable {
     let dateModified: Date
     let kind: String
     let icon: NSImage
+    let isEmptyFolder: Bool
 
     static var transferRepresentation: some TransferRepresentation {
         ProxyRepresentation { item in
@@ -38,6 +39,18 @@ final class FileItem: Identifiable, Hashable, Transferable {
         self.dateModified = resourceValues?.contentModificationDate ?? Date.distantPast
         self.kind = resourceValues?.localizedTypeDescription ?? (self.isDirectory ? "Folder" : "Document")
         self.icon = (resourceValues?.effectiveIcon as? NSImage) ?? NSWorkspace.shared.icon(for: .data)
+
+        if self.isDirectory {
+            // Lightweight check: see if folder has at least one visible item
+            let enumerator = FileManager.default.enumerator(
+                at: url,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
+            )
+            self.isEmptyFolder = enumerator?.nextObject() == nil
+        } else {
+            self.isEmptyFolder = false
+        }
     }
 
     static func == (lhs: FileItem, rhs: FileItem) -> Bool {

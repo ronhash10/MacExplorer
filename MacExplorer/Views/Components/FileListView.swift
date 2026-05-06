@@ -35,10 +35,16 @@ struct FileListView: View {
         )) {
             TableColumn("Name", sortUsing: KeyPathComparator(\.name)) { item in
                 HStack(spacing: 6) {
-                    Image(nsImage: item.icon)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 18, height: 18)
+                    if item.isDirectory {
+                        Image(systemName: item.isEmptyFolder ? "folder" : "folder.fill")
+                            .foregroundStyle(.secondary)
+                            .frame(width: 18, height: 18)
+                    } else {
+                        Image(nsImage: item.icon)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 18, height: 18)
+                    }
 
                     Text(item.name)
                         .lineLimit(1)
