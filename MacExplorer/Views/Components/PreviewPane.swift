@@ -143,6 +143,8 @@ struct FileTypePreview: View {
 
     /// Maximum file size for text-based previews (10 MB)
     private static let maxPreviewSize: Int64 = 10 * 1024 * 1024
+    /// Maximum file size for XLSX previews (1 MB)
+    private static let maxXLSXSize: Int64 = 1 * 1024 * 1024
 
     private var fileSize: Int64 {
         (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
@@ -158,7 +160,11 @@ struct FileTypePreview: View {
                 CSVPreview(url: url)
             }
         } else if ext == "xlsx" {
-            XLSXPreview(url: url)
+            if fileSize > Self.maxXLSXSize {
+                fileTooLargeView
+            } else {
+                XLSXPreview(url: url)
+            }
         } else if Self.codeExtensions.contains(ext) || isCodeByFilename {
             if fileSize > Self.maxPreviewSize {
                 fileTooLargeView
