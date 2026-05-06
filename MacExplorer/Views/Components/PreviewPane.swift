@@ -166,6 +166,8 @@ struct FileTypePreview: View {
             } else {
                 XLSXPreview(url: url)
             }
+        } else if ext == "zip" || ext == "jar" || ext == "war" || ext == "ipa" {
+            ZipPreview(url: url)
         } else if Self.codeExtensions.contains(ext) || isCodeByFilename {
             if fileSize > Self.maxPreviewSize {
                 fileTooLargeView
@@ -602,6 +604,125 @@ struct XLSXPreview: View {
         } catch {
             self.error = "Error reading Excel file: \(error.localizedDescription)"
         }
+    }
+}
+
+// MARK: - ZIP Archive Preview
+
+struct ZipPreview: View {
+    let url: URL
+    @State private var html: String?
+    @State private var error: String?
+
+    var body: some View {
+        Group {
+            if let html {
+                HTMLStringPreview(html: html, baseURL: url.deletingLastPathComponent())
+            } else if let error {
+                Text(error).foregroundStyle(.secondary).padding()
+            } else {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .task(id: url) { loadZipContents() }
+    }
+
+    private func loadZipContents() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/zipinfo")
+        process.arguments = ["-l", url.path]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            guard let output = String(data: data, encoding: .utf8), !output.isEmpty else {
+                self.error = "Could not read archive contents"
+                return
+            }
+            self.html = buildHTML(from: output)
+        } catch {
+            self.error = "Error reading archive: \(error.localizedDescription)"
+        }
+    }
+
+    private func buildHTML(from zipinfoOutput: String) -> String {
+        // Parse zipinfo -l output: skip header/footer, extract file entries
+        let lines = zipinfoOutput.components(separatedBy: "\n")
+        var entries: [(name: String, size: String, date: String)] = []
+        var totalFiles = 0
+        var totalDirs = 0
+
+        for line in lines {
+            // zipinfo -l lines look like: -rw-r--r--  3.0 unx   1234 bx defN 23-May-06 10:00 path/to/file
+            // We need at least ~9 fields
+            let parts = line.split(separator: " ", maxSplits: 8, omittingEmptySubsequences: true)
+            guard parts.count >= 9 else { continue }
+            let perms = String(parts[0])
+            guard perms.count >= 10, "dl-".contains(perms.first!) else { continue }
+
+            let sizeStr = String(parts[3])
+            let date = "\(parts[6]) \(parts[7])"
+            let name = String(parts[8])
+
+            if perms.first == "d" {
+                totalDirs += 1
+            } else {
+                totalFiles += 1
+            }
+
+            let isDir = perms.first == "d"
+            let displayName = isDir ? "📁 \(name)" : "📄 \(name)"
+            let formattedSize = isDir ? "—" : formatBytes(Int64(sizeStr) ?? 0)
+            entries.append((name: displayName, size: formattedSize, date: date))
+        }
+
+        // Build HTML table
+        var rows = "<tr><th>Name</th><th>Size</th><th>Date</th></tr>"
+        for entry in entries.prefix(1000) {
+            rows += "<tr><td>\(escapeHTML(entry.name))</td><td>\(entry.size)</td><td>\(entry.date)</td></tr>"
+        }
+
+        let summary = "\(totalFiles) file\(totalFiles == 1 ? "" : "s"), \(totalDirs) folder\(totalDirs == 1 ? "" : "s")"
+        let truncNote = entries.count > 1000 ? "<p style='padding:8px;color:#888;'>Showing first 1000 of \(entries.count) entries</p>" : ""
+
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        <style>
+          body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 12px; }
+          .summary { padding: 8px 12px; font-weight: 600; border-bottom: 1px solid #ddd; }
+          table { border-collapse: collapse; width: 100%; }
+          th, td { border: 1px solid #ddd; padding: 4px 8px; text-align: left; white-space: nowrap; }
+          th { background: #f0f0f0; font-weight: 600; position: sticky; top: 0; }
+          tr:nth-child(even) { background: #fafafa; }
+          tr:hover td { background: #e8f0fe; }
+          @media (prefers-color-scheme: dark) {
+            body { background: #1e1e1e; color: #d4d4d4; }
+            .summary { border-color: #3d3d3d; }
+            th { background: #2d2d2d; }
+            td { border-color: #3d3d3d; }
+            tr:nth-child(even) { background: #252525; }
+            tr:hover td { background: #2a2d2e; }
+          }
+        </style>
+        </head>
+        <body>
+          <div class="summary">\(summary)</div>
+          \(truncNote)
+          <table>\(rows)</table>
+        </body>
+        </html>
+        """
+    }
+
+    private func formatBytes(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 }
 
