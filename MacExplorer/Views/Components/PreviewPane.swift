@@ -631,7 +631,7 @@ struct ZipPreview: View {
         let filePath = url.path
         let output: String? = await Task.detached {
             let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/zipinfo")
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
             process.arguments = ["-l", filePath]
             let pipe = Pipe()
             process.standardOutput = pipe
@@ -657,32 +657,42 @@ struct ZipPreview: View {
         }
     }
 
-    private func buildHTML(from zipinfoOutput: String) -> String {
-        // Parse zipinfo -l output: skip header/footer, extract file entries
-        let lines = zipinfoOutput.components(separatedBy: "\n")
+    private func buildHTML(from unzipOutput: String) -> String {
+        // Parse `unzip -l` output format:
+        //   Length      Date    Time    Name
+        // ---------  ---------- -----   ----
+        //    156778  07-24-2024 17:05   WhatsApp Image.jpeg
+        // ---------                     -------
+        //    646842                     4 files
+        let lines = unzipOutput.components(separatedBy: "\n")
         var entries: [(name: String, size: String, date: String)] = []
         var totalFiles = 0
         var totalDirs = 0
+        var headerPassed = false
 
         for line in lines {
-            // zipinfo -l lines look like: -rw-r--r--  3.0 unx   1234 bx defN 23-May-06 10:00 path/to/file
-            // We need at least ~9 fields
-            let parts = line.split(separator: " ", maxSplits: 8, omittingEmptySubsequences: true)
-            guard parts.count >= 9 else { continue }
-            let perms = String(parts[0])
-            guard perms.count >= 10, "dl-".contains(perms.first!) else { continue }
-
-            let sizeStr = String(parts[3])
-            let date = "\(parts[6]) \(parts[7])"
-            let name = String(parts[8])
-
-            if perms.first == "d" {
-                totalDirs += 1
-            } else {
-                totalFiles += 1
+            if line.hasPrefix("---------") {
+                if headerPassed { break } // footer reached
+                headerPassed = true
+                continue
             }
+            guard headerPassed else { continue }
 
-            let isDir = perms.first == "d"
+            // Format: "   123456  MM-DD-YYYY HH:MM   filename with spaces"
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { continue }
+
+            // Split into max 4 parts: size, date, time, name
+            let parts = trimmed.split(separator: " ", maxSplits: 3, omittingEmptySubsequences: true)
+            guard parts.count >= 4 else { continue }
+
+            let sizeStr = String(parts[0])
+            let date = "\(parts[1]) \(parts[2])"
+            let name = String(parts[3])
+
+            let isDir = name.hasSuffix("/")
+            if isDir { totalDirs += 1 } else { totalFiles += 1 }
+
             let displayName = isDir ? "📁 \(name)" : "📄 \(name)"
             let formattedSize = isDir ? "—" : formatBytes(Int64(sizeStr) ?? 0)
             entries.append((name: displayName, size: formattedSize, date: date))
