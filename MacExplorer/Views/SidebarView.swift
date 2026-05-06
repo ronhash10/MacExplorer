@@ -173,6 +173,10 @@ struct SidebarView: View {
                     }
                 }
             }
+            .onChange(of: appState.sidebarReloadToken) {
+                invalidateCache()
+                reloadToken += 1
+            }
             .onDeleteCommand {
                 confirmDelete(folder: tab.currentPath)
             }

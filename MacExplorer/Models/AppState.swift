@@ -24,6 +24,8 @@ final class AppState {
     var scrollToItemID: String?
     /// Set to scroll the sidebar tree to a specific folder URL (e.g. after rename)
     var sidebarScrollTarget: URL?
+    /// Incremented when the sidebar tree should refresh (e.g. after trash/move from file list)
+    var sidebarReloadToken: Int = 0
 
     let fileService = FileSystemService()
 
@@ -118,6 +120,7 @@ final class AppState {
                 try? FileManager.default.moveItem(at: pair.to, to: pair.from)
             }
             state.refreshCurrentTab()
+            state.sidebarReloadToken += 1
             state.syncUndoState()
             state.undoManager.registerUndo(withTarget: state) { redoState in
                 redoState.moveWithUndo(urls: movedPairs.map(\.from), to: destination)
@@ -125,6 +128,7 @@ final class AppState {
             state.undoManager.setActionName("Move")
         }
         undoManager.setActionName("Move")
+        sidebarReloadToken += 1
         syncUndoState()
     }
 
@@ -145,6 +149,7 @@ final class AppState {
             state.refreshCurrentTab()
         }
         undoManager.setActionName("Rename \"\(oldName)\"")
+        sidebarReloadToken += 1
         syncUndoState()
         return newURL
     }
@@ -167,6 +172,7 @@ final class AppState {
                 try? FileManager.default.moveItem(at: pair.trash, to: pair.original)
             }
             state.refreshCurrentTab()
+            state.sidebarReloadToken += 1
             state.syncUndoState()
             // Register redo
             state.undoManager.registerUndo(withTarget: state) { redoState in
@@ -175,6 +181,7 @@ final class AppState {
             state.undoManager.setActionName("Move to Trash")
         }
         undoManager.setActionName("Move to Trash")
+        sidebarReloadToken += 1
         syncUndoState()
         return true
     }
@@ -188,6 +195,7 @@ final class AppState {
         undoManager.registerUndo(withTarget: self) { state in
             try? FileManager.default.removeItem(at: folderURL)
             state.refreshCurrentTab()
+            state.sidebarReloadToken += 1
             state.syncUndoState()
             // Register redo
             state.undoManager.registerUndo(withTarget: state) { redoState in
@@ -196,6 +204,7 @@ final class AppState {
             state.undoManager.setActionName("New Folder")
         }
         undoManager.setActionName("New Folder")
+        sidebarReloadToken += 1
         syncUndoState()
         return folderURL
     }
