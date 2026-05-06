@@ -41,13 +41,10 @@ final class FileItem: Identifiable, Hashable, Transferable {
         self.icon = (resourceValues?.effectiveIcon as? NSImage) ?? NSWorkspace.shared.icon(for: .data)
 
         if self.isDirectory {
-            // Lightweight check: see if folder has at least one visible item
-            let enumerator = FileManager.default.enumerator(
-                at: url,
-                includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
-            )
-            self.isEmptyFolder = enumerator?.nextObject() == nil
+            // Lightweight check: see if folder has at least one visible non-metadata item
+            let contents = (try? FileManager.default.contentsOfDirectory(atPath: url.path)) ?? []
+            let ignoredFiles: Set<String> = [".DS_Store", ".localized", "Thumbs.db"]
+            self.isEmptyFolder = contents.allSatisfy { $0.hasPrefix(".") || ignoredFiles.contains($0) }
         } else {
             self.isEmptyFolder = false
         }

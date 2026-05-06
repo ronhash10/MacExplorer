@@ -46,10 +46,13 @@ final class FileSystemService {
         return resultURL as URL?
     }
 
-    /// Check if a directory contains any items.
+    /// Invisible metadata files that don't count as "real" content.
+    private static let ignoredFiles: Set<String> = [".DS_Store", ".localized", "Thumbs.db"]
+
+    /// Check if a directory contains any meaningful items (ignoring .DS_Store etc).
     func isDirectoryEmpty(_ url: URL) -> Bool {
-        let contents = try? fileManager.contentsOfDirectory(atPath: url.path)
-        return contents?.isEmpty ?? true
+        guard let contents = try? fileManager.contentsOfDirectory(atPath: url.path) else { return true }
+        return contents.allSatisfy { Self.ignoredFiles.contains($0) }
     }
 
     /// Create a new folder at the given URL.
