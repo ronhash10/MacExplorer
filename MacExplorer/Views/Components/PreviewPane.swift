@@ -624,28 +624,36 @@ struct ZipPreview: View {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .task(id: url) { loadZipContents() }
+        .task(id: url) { await loadZipContents() }
     }
 
-    private func loadZipContents() {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/zipinfo")
-        process.arguments = ["-l", url.path]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
+    private func loadZipContents() async {
+        let filePath = url.path
+        let output: String? = await Task.detached {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/zipinfo")
+            process.arguments = ["-l", filePath]
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = Pipe()
 
-        do {
-            try process.run()
-            process.waitUntilExit()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            guard let output = String(data: data, encoding: .utf8), !output.isEmpty else {
-                self.error = "Could not read archive contents"
-                return
+            do {
+                try process.run()
+                process.waitUntilExit()
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                guard let str = String(data: data, encoding: .utf8), !str.isEmpty else {
+                    return nil
+                }
+                return str
+            } catch {
+                return nil
             }
+        }.value
+
+        if let output {
             self.html = buildHTML(from: output)
-        } catch {
-            self.error = "Error reading archive: \(error.localizedDescription)"
+        } else {
+            self.error = "Could not read archive contents"
         }
     }
 
