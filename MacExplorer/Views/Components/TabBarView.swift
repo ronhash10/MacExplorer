@@ -46,6 +46,7 @@ struct TabBarView: View {
                                     // Refresh in background to catch filesystem changes
                                     DispatchQueue.main.async {
                                         appState.refreshCurrentTab()
+                                        appState.rebuildWatcher()
                                     }
                                 },
                                 onClose: {

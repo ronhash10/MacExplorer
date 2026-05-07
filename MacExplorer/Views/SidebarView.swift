@@ -177,6 +177,9 @@ struct SidebarView: View {
                 invalidateCache()
                 reloadToken += 1
             }
+            .onChange(of: expandedPaths) {
+                appState.watchedSidebarPaths = expandedPaths
+            }
             .onDeleteCommand {
                 confirmDelete(folder: tab.currentPath)
             }

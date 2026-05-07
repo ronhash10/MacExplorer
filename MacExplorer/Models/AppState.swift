@@ -28,6 +28,11 @@ final class AppState {
     var sidebarReloadToken: Int = 0
 
     let fileService = FileSystemService()
+    let directoryWatcher = DirectoryWatcher()
+    /// Paths the sidebar is currently watching (expanded folders)
+    var watchedSidebarPaths: Set<String> = [] {
+        didSet { rebuildWatcher() }
+    }
 
     // MARK: - Undo/Redo
 
@@ -50,6 +55,7 @@ final class AppState {
     init() {
         addTab()
         setupUndoObservers()
+        rebuildWatcher()
     }
 
     private func setupUndoObservers() {
@@ -73,6 +79,44 @@ final class AppState {
         canRedo = undoManager.canRedo
         undoActionName = undoManager.undoActionName
         redoActionName = undoManager.redoActionName
+    }
+
+    // MARK: - Directory Watching
+
+    func rebuildWatcher() {
+        var paths: Set<String> = []
+        if let tab = currentTab {
+            paths.insert(tab.currentPath.path)
+        }
+        paths.formUnion(watchedSidebarPaths)
+        directoryWatcher.watch(paths: Array(paths)) { [weak self] changedPaths in
+            self?.handleFileSystemChanges(changedPaths)
+        }
+    }
+
+    private func handleFileSystemChanges(_ changedPaths: [String]) {
+        guard let tab = currentTab else { return }
+        let currentPath = tab.currentPath.standardizedFileURL.path
+
+        var needsListRefresh = false
+        var needsSidebarRefresh = false
+
+        for path in changedPaths {
+            let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
+            if standardized == currentPath {
+                needsListRefresh = true
+            }
+            if watchedSidebarPaths.contains(path) || watchedSidebarPaths.contains(standardized) {
+                needsSidebarRefresh = true
+            }
+        }
+
+        if needsListRefresh {
+            refreshCurrentTab()
+        }
+        if needsSidebarRefresh {
+            sidebarReloadToken += 1
+        }
     }
 
     // MARK: - Undo-aware File Operations
@@ -295,6 +339,7 @@ final class AppState {
         // Defer filesystem read to next run loop so UI updates instantly
         DispatchQueue.main.async { [self] in
             refreshCurrentTab()
+            rebuildWatcher()
         }
     }
 }
