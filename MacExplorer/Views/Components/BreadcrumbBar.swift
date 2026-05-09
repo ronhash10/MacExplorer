@@ -66,7 +66,34 @@ struct BreadcrumbBar: View {
 
             Spacer()
 
-            // Search field
+            if !tab.isSearchTab {
+                // Live filter for current folder
+                HStack(spacing: 4) {
+                    Image(systemName: "line.3.horizontal.decrease")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    TextField("Filter", text: Binding(
+                        get: { appState.searchQuery },
+                        set: { appState.searchQuery = $0 }
+                    ))
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .frame(width: 100)
+                    if !appState.searchQuery.isEmpty {
+                        Button(action: { appState.searchQuery = "" }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+            }
+
+            // Search field (recursive)
             HStack(spacing: 4) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 11))
@@ -74,7 +101,7 @@ struct BreadcrumbBar: View {
                 TextField("Search", text: $searchText)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12))
-                    .frame(width: 140)
+                    .frame(width: 120)
                     .onSubmit {
                         let path = tab.isSearchTab ? (tab.searchRootPath ?? tab.currentPath) : tab.currentPath
                         appState.performSearch(query: searchText, from: path)

@@ -16,7 +16,7 @@ final class AppState {
             refreshCurrentTab()
         }
     }
-    var searchQuery: String = ""  // Legacy filter (unused after search tab feature)
+    var searchQuery: String = ""
     var shouldClose: Bool = false
     /// Set by sidebar to request the file list start renaming a newly created folder by name
     var pendingRenameFolder: String?
