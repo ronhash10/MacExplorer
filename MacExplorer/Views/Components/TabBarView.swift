@@ -144,7 +144,7 @@ struct TabItemView: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: "folder")
+            Image(systemName: tab.isSearchTab ? "magnifyingglass" : "folder")
                 .font(.system(size: 12))
                 .foregroundStyle(isActive ? Color.accentColor : .secondary)
 

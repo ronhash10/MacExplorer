@@ -17,34 +17,66 @@ struct ContentView: View {
     @ViewBuilder
     private var mainContent: some View {
         if let tab = appState.currentTab {
-            HSplitView {
-                SidebarView(tab: tab)
-                    .frame(minWidth: 180, idealWidth: 220, maxWidth: 350)
-
-                VStack(spacing: 0) {
-                    BreadcrumbBar(tab: tab)
-                    Divider()
-
-                    HStack(spacing: 0) {
-                        FileListView(tab: tab)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                        if appState.showPreview {
-                            ResizableDivider(width: $previewWidth)
-                            PreviewPane(tab: tab)
-                                .frame(width: previewWidth)
-                                .frame(maxHeight: .infinity)
-                        }
-                    }
-
-                    Divider()
-                    StatusBar(tab: tab)
-                }
+            if tab.isSearchTab {
+                searchTabContent(tab: tab)
+            } else {
+                normalTabContent(tab: tab)
             }
         } else {
             Text("No tabs open. Press ⌘T to create a new tab.")
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    private func normalTabContent(tab: TabState) -> some View {
+        HSplitView {
+            SidebarView(tab: tab)
+                .frame(minWidth: 180, idealWidth: 220, maxWidth: 350)
+
+            VStack(spacing: 0) {
+                BreadcrumbBar(tab: tab)
+                Divider()
+
+                HStack(spacing: 0) {
+                    FileListView(tab: tab)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                    if appState.showPreview {
+                        ResizableDivider(width: $previewWidth)
+                        PreviewPane(tab: tab)
+                            .frame(width: previewWidth)
+                            .frame(maxHeight: .infinity)
+                    }
+                }
+
+                Divider()
+                StatusBar(tab: tab)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func searchTabContent(tab: TabState) -> some View {
+        VStack(spacing: 0) {
+            BreadcrumbBar(tab: tab)
+            Divider()
+
+            HStack(spacing: 0) {
+                SearchResultsView(tab: tab)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if appState.showPreview {
+                    ResizableDivider(width: $previewWidth)
+                    PreviewPane(tab: tab)
+                        .frame(width: previewWidth)
+                        .frame(maxHeight: .infinity)
+                }
+            }
+
+            Divider()
+            StatusBar(tab: tab)
         }
     }
 }

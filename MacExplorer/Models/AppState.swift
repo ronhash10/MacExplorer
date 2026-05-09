@@ -16,7 +16,7 @@ final class AppState {
             refreshCurrentTab()
         }
     }
-    var searchQuery: String = ""
+    var searchQuery: String = ""  // Legacy filter (unused after search tab feature)
     var shouldClose: Bool = false
     /// Set by sidebar to request the file list start renaming a newly created folder by name
     var pendingRenameFolder: String?
@@ -327,10 +327,29 @@ final class AppState {
 
     func refreshCurrentTab() {
         guard let tab = currentTab else { return }
+        if tab.isSearchTab { return }
         tab.items = fileService.contentsOfDirectory(
             at: tab.currentPath,
             showHidden: showHiddenFiles
         )
+    }
+
+    /// Create a search tab and start async search.
+    func performSearch(query: String, from path: URL) {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+
+        let tab = TabState(searchQuery: trimmed, rootPath: path)
+        tabs.append(tab)
+        activeTabID = tab.id
+
+        Task.detached { [fileService = self.fileService, showHidden = self.showHiddenFiles] in
+            let results = await fileService.searchFiles(in: path, query: trimmed, showHidden: showHidden)
+            await MainActor.run {
+                tab.items = results
+                tab.isSearching = false
+            }
+        }
     }
 
     func navigate(to url: URL) {

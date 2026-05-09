@@ -81,4 +81,44 @@ final class FileSystemService {
             options: [.skipHiddenVolumes]
         ) ?? []
     }
+
+    /// Recursively search for files/folders matching a query in the given directory.
+    func searchFiles(in directory: URL, query: String, showHidden: Bool) async -> [FileItem] {
+        let lowercasedQuery = query.lowercased()
+        let resourceKeys: Set<URLResourceKey> = [
+            .isDirectoryKey, .fileSizeKey,
+            .contentModificationDateKey, .localizedTypeDescriptionKey,
+            .effectiveIconKey, .isHiddenKey
+        ]
+        let maxResults = 10_000
+
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                var results: [FileItem] = []
+                guard let enumerator = FileManager.default.enumerator(
+                    at: directory,
+                    includingPropertiesForKeys: Array(resourceKeys),
+                    options: showHidden ? [.producesRelativePathURLs] : [.skipsHiddenFiles, .producesRelativePathURLs]
+                ) else {
+                    continuation.resume(returning: [])
+                    return
+                }
+
+                while let url = enumerator.nextObject() as? URL {
+                    if results.count >= maxResults { break }
+
+                    let name = url.lastPathComponent
+                    if Self.ignoredFiles.contains(name) { continue }
+
+                    if name.lowercased().contains(lowercasedQuery) {
+                        // Resolve to absolute URL for FileItem
+                        let absoluteURL = directory.appendingPathComponent(url.relativePath)
+                        results.append(FileItem(url: absoluteURL))
+                    }
+                }
+
+                continuation.resume(returning: results)
+            }
+        }
+    }
 }

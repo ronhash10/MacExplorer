@@ -13,6 +13,12 @@ final class TabState: Identifiable {
         KeyPathComparator(\.name, order: .forward)
     ]
 
+    // Search tab properties
+    var isSearchTab: Bool = false
+    var searchQuery: String?
+    var searchRootPath: URL?
+    var isSearching: Bool = false
+
     private var backStack: [URL] = []
     private var forwardStack: [URL] = []
 
@@ -24,6 +30,17 @@ final class TabState: Identifiable {
         let startPath = path ?? FileManager.default.homeDirectoryForCurrentUser
         self.currentPath = startPath
         self.title = startPath.lastPathComponent
+    }
+
+    /// Create a search tab.
+    init(searchQuery: String, rootPath: URL) {
+        self.id = UUID()
+        self.isSearchTab = true
+        self.searchQuery = searchQuery
+        self.searchRootPath = rootPath
+        self.currentPath = rootPath
+        self.title = "\"\(searchQuery)\" in \(rootPath.lastPathComponent)"
+        self.isSearching = true
     }
 
     func navigate(to url: URL) {
