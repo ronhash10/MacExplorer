@@ -311,9 +311,10 @@ final class AppState {
     func closeTab(_ id: UUID) {
         guard tabs.count > 0 else { return }
         if let index = tabs.firstIndex(where: { $0.id == id }) {
+            let tab = tabs[index]
+            tab.cancelSearch()
             tabs.remove(at: index)
             if activeTabID == id {
-                // Activate the nearest tab
                 let newIndex = min(index, tabs.count - 1)
                 activeTabID = tabs.indices.contains(newIndex) ? tabs[newIndex].id : nil
             }
@@ -334,7 +335,7 @@ final class AppState {
         )
     }
 
-    /// Create a search tab and start async search.
+    /// Create a search tab and start async search with streaming results.
     func performSearch(query: String, from path: URL) {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
@@ -343,13 +344,40 @@ final class AppState {
         tabs.append(tab)
         activeTabID = tab.id
 
-        Task.detached { [fileService = self.fileService, showHidden = self.showHiddenFiles] in
-            let results = await fileService.searchFiles(in: path, query: trimmed, showHidden: showHidden)
-            await MainActor.run {
-                tab.items = results
-                tab.isSearching = false
+        let cancelFlag = CancelFlag()
+        let service = self.fileService
+        let showHidden = self.showHiddenFiles
+
+        let task = Task.detached {
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                    var didResume = false
+                    service.searchFiles(
+                        in: path,
+                        query: trimmed,
+                        showHidden: showHidden,
+                        isCancelled: { cancelFlag.isCancelled },
+                        onBatch: { newItems, scanned in
+                            if newItems.isEmpty {
+                                // Final signal — search complete or was empty
+                                tab.isSearching = false
+                                tab.filesScanned = scanned
+                                if !didResume {
+                                    didResume = true
+                                    cont.resume()
+                                }
+                            } else {
+                                tab.items.append(contentsOf: newItems)
+                                tab.filesScanned = scanned
+                            }
+                        }
+                    )
+                }
+            } onCancel: {
+                cancelFlag.cancel()
             }
         }
+        tab.searchTask = task
     }
 
     func navigate(to url: URL) {
@@ -360,5 +388,23 @@ final class AppState {
             refreshCurrentTab()
             rebuildWatcher()
         }
+    }
+}
+
+/// Thread-safe cancellation flag for bridging Task cancellation to GCD.
+final class CancelFlag: @unchecked Sendable {
+    private var _cancelled = false
+    private let lock = NSLock()
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _cancelled
+    }
+
+    func cancel() {
+        lock.lock()
+        _cancelled = true
+        lock.unlock()
     }
 }

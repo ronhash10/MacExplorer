@@ -83,42 +83,70 @@ final class FileSystemService {
     }
 
     /// Recursively search for files/folders matching a query in the given directory.
-    func searchFiles(in directory: URL, query: String, showHidden: Bool) async -> [FileItem] {
+    /// Calls `onBatch` periodically with new matches and total files scanned so far.
+    /// Checks `isCancelled` to support early termination.
+    func searchFiles(
+        in directory: URL,
+        query: String,
+        showHidden: Bool,
+        isCancelled: @escaping () -> Bool,
+        onBatch: @escaping ([FileItem], Int) -> Void
+    ) {
         let lowercasedQuery = query.lowercased()
-        let resourceKeys: Set<URLResourceKey> = [
+        let resourceKeys: [URLResourceKey] = [
             .isDirectoryKey, .fileSizeKey,
             .contentModificationDateKey, .localizedTypeDescriptionKey,
             .effectiveIconKey, .isHiddenKey
         ]
         let maxResults = 10_000
+        let batchSize = 200
 
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                var results: [FileItem] = []
-                guard let enumerator = FileManager.default.enumerator(
-                    at: directory,
-                    includingPropertiesForKeys: Array(resourceKeys),
-                    options: showHidden ? [.producesRelativePathURLs] : [.skipsHiddenFiles, .producesRelativePathURLs]
-                ) else {
-                    continuation.resume(returning: [])
-                    return
-                }
+        DispatchQueue.global(qos: .userInitiated).async {
+            var batch: [FileItem] = []
+            var totalMatches = 0
+            var scanned = 0
 
-                while let url = enumerator.nextObject() as? URL {
-                    if results.count >= maxResults { break }
-
-                    let name = url.lastPathComponent
-                    if Self.ignoredFiles.contains(name) { continue }
-
-                    if name.lowercased().contains(lowercasedQuery) {
-                        // Resolve to absolute URL for FileItem
-                        let absoluteURL = directory.appendingPathComponent(url.relativePath)
-                        results.append(FileItem(url: absoluteURL))
-                    }
-                }
-
-                continuation.resume(returning: results)
+            guard let enumerator = FileManager.default.enumerator(
+                at: directory,
+                includingPropertiesForKeys: resourceKeys,
+                options: showHidden ? [.producesRelativePathURLs] : [.skipsHiddenFiles, .producesRelativePathURLs]
+            ) else {
+                DispatchQueue.main.async { onBatch([], 0) }
+                return
             }
+
+            while let url = enumerator.nextObject() as? URL {
+                if isCancelled() || totalMatches >= maxResults { break }
+
+                scanned += 1
+                let name = url.lastPathComponent
+                if Self.ignoredFiles.contains(name) { continue }
+
+                if name.lowercased().contains(lowercasedQuery) {
+                    let absoluteURL = directory.appendingPathComponent(url.relativePath)
+                    batch.append(FileItem(url: absoluteURL))
+                    totalMatches += 1
+                }
+
+                // Flush batch periodically
+                if batch.count >= batchSize {
+                    let items = batch
+                    let count = scanned
+                    batch = []
+                    DispatchQueue.main.async { onBatch(items, count) }
+                }
+            }
+
+            // Flush remaining
+            if !batch.isEmpty || totalMatches == 0 {
+                let items = batch
+                let count = scanned
+                DispatchQueue.main.async { onBatch(items, count) }
+            }
+
+            // Signal completion
+            let finalCount = scanned
+            DispatchQueue.main.async { onBatch([], finalCount) }
         }
     }
 }

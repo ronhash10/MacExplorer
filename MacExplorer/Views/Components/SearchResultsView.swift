@@ -11,13 +11,13 @@ struct SearchResultsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if tab.isSearching {
-                Spacer()
-                ProgressView("Searching…")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-                Spacer()
-            } else if tab.items.isEmpty {
+            // Search progress bar
+            if tab.isSearching || !tab.items.isEmpty {
+                searchStatusBar
+                Divider()
+            }
+
+            if tab.items.isEmpty && !tab.isSearching {
                 Spacer()
                 VStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
@@ -31,11 +31,67 @@ struct SearchResultsView: View {
                         .foregroundStyle(.tertiary)
                 }
                 Spacer()
+            } else if tab.items.isEmpty && tab.isSearching {
+                Spacer()
+                VStack(spacing: 12) {
+                    ProgressView()
+                        .scaleEffect(1.2)
+                    Text("Searching…")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                    Text("\(tab.filesScanned.formatted()) files scanned")
+                        .font(.callout)
+                        .foregroundStyle(.tertiary)
+                    Button("Stop") {
+                        tab.cancelSearch()
+                    }
+                    .buttonStyle(.bordered)
+                }
+                Spacer()
             } else {
                 resultsTable
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var searchStatusBar: some View {
+        HStack(spacing: 8) {
+            if tab.isSearching {
+                ProgressView()
+                    .scaleEffect(0.6)
+                    .frame(width: 14, height: 14)
+                Text("\(tab.items.count.formatted()) found · \(tab.filesScanned.formatted()) scanned")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Button(action: { tab.cancelSearch() }) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "stop.fill")
+                            .font(.system(size: 8))
+                        Text("Stop")
+                            .font(.caption)
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            } else {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.green)
+                Text("\(tab.items.count.formatted()) results · \(tab.filesScanned.formatted()) files scanned")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+        .background(.bar)
     }
 
     @ViewBuilder

@@ -18,6 +18,8 @@ final class TabState: Identifiable {
     var searchQuery: String?
     var searchRootPath: URL?
     var isSearching: Bool = false
+    var filesScanned: Int = 0
+    var searchTask: Task<Void, Never>?
 
     private var backStack: [URL] = []
     private var forwardStack: [URL] = []
@@ -41,6 +43,12 @@ final class TabState: Identifiable {
         self.currentPath = rootPath
         self.title = "\"\(searchQuery)\" in \(rootPath.lastPathComponent)"
         self.isSearching = true
+    }
+
+    func cancelSearch() {
+        searchTask?.cancel()
+        searchTask = nil
+        isSearching = false
     }
 
     func navigate(to url: URL) {
