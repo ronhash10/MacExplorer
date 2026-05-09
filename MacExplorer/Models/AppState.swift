@@ -357,18 +357,17 @@ final class AppState {
                         query: trimmed,
                         showHidden: showHidden,
                         isCancelled: { cancelFlag.isCancelled },
-                        onBatch: { newItems, scanned in
-                            if newItems.isEmpty {
-                                // Final signal — search complete or was empty
+                        onProgress: { newItems, scanned, isComplete in
+                            if !newItems.isEmpty {
+                                tab.items.append(contentsOf: newItems)
+                            }
+                            tab.filesScanned = scanned
+                            if isComplete {
                                 tab.isSearching = false
-                                tab.filesScanned = scanned
                                 if !didResume {
                                     didResume = true
                                     cont.resume()
                                 }
-                            } else {
-                                tab.items.append(contentsOf: newItems)
-                                tab.filesScanned = scanned
                             }
                         }
                     )

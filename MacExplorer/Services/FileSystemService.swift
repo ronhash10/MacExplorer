@@ -90,7 +90,7 @@ final class FileSystemService {
         query: String,
         showHidden: Bool,
         isCancelled: @escaping () -> Bool,
-        onBatch: @escaping ([FileItem], Int) -> Void
+        onProgress: @escaping (_ newItems: [FileItem], _ scanned: Int, _ isComplete: Bool) -> Void
     ) {
         let lowercasedQuery = query.lowercased()
         let resourceKeys: [URLResourceKey] = [
@@ -105,13 +105,14 @@ final class FileSystemService {
             var batch: [FileItem] = []
             var totalMatches = 0
             var scanned = 0
+            var lastFlushTime = CFAbsoluteTimeGetCurrent()
 
             guard let enumerator = FileManager.default.enumerator(
                 at: directory,
                 includingPropertiesForKeys: resourceKeys,
                 options: showHidden ? [.producesRelativePathURLs] : [.skipsHiddenFiles, .producesRelativePathURLs]
             ) else {
-                DispatchQueue.main.async { onBatch([], 0) }
+                DispatchQueue.main.async { onProgress([], 0, true) }
                 return
             }
 
@@ -128,25 +129,21 @@ final class FileSystemService {
                     totalMatches += 1
                 }
 
-                // Flush batch periodically
-                if batch.count >= batchSize {
+                // Flush when we have a full batch or every 300ms for progress updates
+                let now = CFAbsoluteTimeGetCurrent()
+                if batch.count >= batchSize || (now - lastFlushTime >= 0.3) {
                     let items = batch
                     let count = scanned
                     batch = []
-                    DispatchQueue.main.async { onBatch(items, count) }
+                    lastFlushTime = now
+                    DispatchQueue.main.async { onProgress(items, count, false) }
                 }
             }
 
-            // Flush remaining
-            if !batch.isEmpty || totalMatches == 0 {
-                let items = batch
-                let count = scanned
-                DispatchQueue.main.async { onBatch(items, count) }
-            }
-
-            // Signal completion
+            // Final flush with remaining items
+            let finalItems = batch
             let finalCount = scanned
-            DispatchQueue.main.async { onBatch([], finalCount) }
+            DispatchQueue.main.async { onProgress(finalItems, finalCount, true) }
         }
     }
 }
