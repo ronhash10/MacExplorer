@@ -44,6 +44,9 @@ struct SidebarView: View {
         var id: String { url.standardizedFileURL.path }
     }
 
+    /// Hidden ancestor paths that must be visible in the tree even when "show hidden" is off
+    @State private var forcedVisiblePaths: Set<String> = []
+
     /// Flatten the tree: only include children of expanded nodes
     private var visibleNodes: [FlatNode] {
         _ = reloadToken
@@ -69,7 +72,6 @@ struct SidebarView: View {
             return cached
         }
         let children = loadChildren(of: url)
-        // Mutate cache on main queue after current render
         DispatchQueue.main.async {
             childrenCache[key] = children
         }
@@ -77,10 +79,21 @@ struct SidebarView: View {
     }
 
     private func loadChildren(of url: URL) -> [URL] {
-        appState.fileService.contentsOfDirectory(at: url)
+        var children = appState.fileService.contentsOfDirectory(at: url, showHidden: appState.showHiddenFiles)
             .filter(\.isDirectory)
             .map(\.url)
-            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+
+        // Include hidden ancestor folders needed for the current path
+        for forced in forcedVisiblePaths {
+            let forcedURL = URL(fileURLWithPath: forced)
+            if forcedURL.deletingLastPathComponent().standardizedFileURL == url.standardizedFileURL {
+                if !children.contains(where: { $0.standardizedFileURL.path == forced }) {
+                    children.append(forcedURL)
+                }
+            }
+        }
+
+        return children.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
     }
 
     /// Invalidate cache for a specific path (e.g. after rename, create, move)
@@ -92,7 +105,7 @@ struct SidebarView: View {
         }
     }
 
-    /// Ensure all ancestors of a path are expanded
+    /// Ensure all ancestors of a path are expanded, including hidden folders
     private func expandAncestors(of targetURL: URL) {
         let rootPath = treeRoot.standardizedFileURL.path
         let targetPath = targetURL.standardizedFileURL.path
@@ -102,9 +115,24 @@ struct SidebarView: View {
         expandedPaths.insert(current.path)
         let rootComponents = treeRoot.standardizedFileURL.pathComponents
         let targetComponents = targetURL.standardizedFileURL.pathComponents
+        var needsCacheInvalidation = false
         for i in rootComponents.count..<targetComponents.count {
             current = current.appendingPathComponent(targetComponents[i])
-            expandedPaths.insert(current.standardizedFileURL.path)
+            let stdPath = current.standardizedFileURL.path
+            expandedPaths.insert(stdPath)
+
+            // If this is a hidden folder, force it visible in the tree
+            if targetComponents[i].hasPrefix(".") {
+                if !forcedVisiblePaths.contains(stdPath) {
+                    forcedVisiblePaths.insert(stdPath)
+                    // Invalidate parent's cache so it picks up the forced path
+                    invalidateCache(for: current.deletingLastPathComponent())
+                    needsCacheInvalidation = true
+                }
+            }
+        }
+        if needsCacheInvalidation {
+            reloadToken += 1
         }
     }
 
