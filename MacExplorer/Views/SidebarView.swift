@@ -158,9 +158,21 @@ struct SidebarView: View {
             }
             .onAppear {
                 expandAncestors(of: tab.currentPath)
+                let targetID = tab.currentPath.standardizedFileURL.path
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    withAnimation {
+                        proxy.scrollTo(targetID, anchor: .center)
+                    }
+                }
             }
             .onChange(of: tab.currentPath) {
                 expandAncestors(of: tab.currentPath)
+                let targetID = tab.currentPath.standardizedFileURL.path
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    withAnimation {
+                        proxy.scrollTo(targetID, anchor: .center)
+                    }
+                }
             }
             .onChange(of: appState.sidebarScrollTarget) { _, target in
                 guard let target else { return }
