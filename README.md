@@ -78,17 +78,10 @@ A Windows-style file explorer for macOS. If you've always preferred the PC's Fil
 
 ## Installation
 
-### Homebrew (Recommended)
-
-```bash
-brew tap ronhash10/macexplorer https://github.com/ronhash10/MacExplorer
-brew install --cask macexplorer
-```
-
 ### DMG Download
 
-1. Go to [Releases](https://github.com/ronhash10/MacExplorer/releases)
-2. Download `MacExplorer-x.x.x.dmg`
+1. Go to [Releases](https://github.com/ronhash10/MacExplorer/releases/latest)
+2. Download `MacExplorer.dmg`
 3. Open the DMG and drag **MacExplorer** to **Applications**
 
 ### Build from Source
@@ -155,10 +148,7 @@ MacExplorer/
 | Script | Purpose |
 |--------|---------|
 | `./run.sh` | Build debug, code-sign, deploy to /Applications, and launch |
-| `./build-dmg.sh [version]` | Build release binary and create a DMG |
-| `./release.sh [version]` | Build DMG, create GitHub release, update Homebrew cask |
 | `./set-default.sh set\|unset\|status` | Manage default folder handler |
-| `./setup-cert.sh` | Create self-signed certificate for persistent code signing |
 
 ## Tech Stack
 
