@@ -10,6 +10,26 @@ struct DuplicateFinderView: View {
     @State private var groups: [DuplicateGroup] = []
     @State private var filesToTrash: Set<FileItem.ID> = []
     @State private var hasScanned = false
+    @State private var previewedFileID: FileItem.ID?
+    @State private var previewWidth: CGFloat = 380
+    @State private var fileHashes: [FileItem.ID: String] = [:]
+    @FocusState private var listFocused: Bool
+
+    private enum VerificationStatus {
+        case pending, identical, different
+    }
+
+    private var previewedFile: FileItem? {
+        groups.flatMap(\.files).first { $0.id == previewedFileID }
+    }
+
+    /// Compares a file's content hash against its group's kept (oldest) file.
+    private func verificationStatus(for file: FileItem, in group: DuplicateGroup) -> VerificationStatus {
+        guard let keepFile = group.files.first,
+              let keepHash = fileHashes[keepFile.id],
+              let fileHash = fileHashes[file.id] else { return .pending }
+        return fileHash == keepHash ? .identical : .different
+    }
 
     private var selectedCount: Int { filesToTrash.count }
     private var selectedSize: Int64 {
@@ -29,16 +49,80 @@ struct DuplicateFinderView: View {
             } else if groups.isEmpty {
                 emptyState
             } else {
-                resultsList
+                HStack(spacing: 0) {
+                    resultsList
+                        .frame(minWidth: 240, maxWidth: .infinity)
+                    ResizableDivider(width: $previewWidth)
+                    previewPane
+                        .frame(width: previewWidth)
+                        .frame(maxHeight: .infinity)
+                }
                 Divider()
                 footer
             }
         }
-        .frame(width: 560, height: 480)
+        .frame(minWidth: 680, idealWidth: 860, maxWidth: .infinity,
+               minHeight: 440, idealHeight: 560, maxHeight: .infinity)
+        .background(ResizableSheetConfigurator(minSize: NSSize(width: 680, height: 440)))
         .task {
             groups = DuplicateFinder.findDuplicateGroups(in: tab.items)
             filesToTrash = Set(groups.flatMap { $0.files.dropFirst() }.map(\.id))
+            previewedFileID = groups.first?.files.first?.id
             hasScanned = true
+            listFocused = true
+
+            // Verify byte-for-byte equality, since matching size + name prefix alone
+            // can coincidentally group unrelated files.
+            for file in groups.flatMap(\.files) {
+                guard !Task.isCancelled else { return }
+                let hash = await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
+                    DispatchQueue.global(qos: .utility).async {
+                        continuation.resume(returning: FileHasher.sha256(of: file.url))
+                    }
+                }
+                guard !Task.isCancelled else { return }
+                if let hash {
+                    fileHashes[file.id] = hash
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var previewPane: some View {
+        if let file = previewedFile {
+            VStack(spacing: 0) {
+                HStack(spacing: 8) {
+                    Image(nsImage: file.icon)
+                        .resizable()
+                        .frame(width: 20, height: 20)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(file.name)
+                            .font(.callout.bold())
+                            .lineLimit(1)
+                        Text("\(file.formattedSize) · Created \(file.formattedCreatedDate)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(10)
+
+                Divider()
+
+                FileTypePreview(url: file.url)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        } else {
+            VStack(spacing: 8) {
+                Image(systemName: "doc.richtext")
+                    .font(.system(size: 32))
+                    .foregroundStyle(.quaternary)
+                Text("Select a file to preview")
+                    .foregroundStyle(.secondary)
+                    .font(.callout)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -76,11 +160,12 @@ struct DuplicateFinderView: View {
     }
 
     private var resultsList: some View {
-        List {
+        List(selection: $previewedFileID) {
             ForEach(groups) { group in
                 Section {
                     ForEach(group.files) { file in
                         fileRow(file, in: group)
+                            .tag(file.id)
                     }
                 } header: {
                     HStack {
@@ -95,6 +180,7 @@ struct DuplicateFinderView: View {
                 }
             }
         }
+        .focused($listFocused)
     }
 
     private func fileRow(_ file: FileItem, in group: DuplicateGroup) -> some View {
@@ -131,8 +217,29 @@ struct DuplicateFinderView: View {
             }
 
             Spacer()
+
+            if !isOldest {
+                verificationBadge(for: verificationStatus(for: file, in: group))
+            }
         }
         .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
+    private func verificationBadge(for status: VerificationStatus) -> some View {
+        switch status {
+        case .pending:
+            ProgressView()
+                .controlSize(.mini)
+        case .identical:
+            Label("Identical", systemImage: "checkmark.seal.fill")
+                .font(.caption2)
+                .foregroundStyle(.green)
+        case .different:
+            Label("Different content", systemImage: "exclamationmark.triangle.fill")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+        }
     }
 
     private var footer: some View {
@@ -173,4 +280,23 @@ struct DuplicateFinderView: View {
         appState.refreshCurrentTab()
         dismiss()
     }
+}
+
+/// SwiftUI sheets on macOS don't become resizable just from flexible `.frame()`
+/// bounds — the sheet's NSWindow needs `.resizable` added to its styleMask
+/// directly. This invisible helper reaches into the hosting window to do that.
+private struct ResizableSheetConfigurator: NSViewRepresentable {
+    let minSize: NSSize
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            guard let window = view.window else { return }
+            window.styleMask.insert(.resizable)
+            window.minSize = minSize
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }

@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 /// A group of files considered potential duplicates (same size, matching name prefix).
 /// `files` is sorted oldest-first by creation date.
@@ -21,7 +22,12 @@ enum DuplicateFinder {
         for (_, files) in bySize where files.count > 1 {
             groups.append(contentsOf: connectedComponents(of: files))
         }
-        return groups
+
+        // Dictionary iteration order is unspecified, so without this the group
+        // order would vary from run to run.
+        return groups.sorted {
+            $0.files[0].name.localizedStandardCompare($1.files[0].name) == .orderedAscending
+        }
     }
 
     /// Partitions files within one size bucket into groups via prefix-matching stems.
@@ -59,5 +65,24 @@ enum DuplicateFinder {
 
     private static func isPrefixMatch(_ a: String, _ b: String) -> Bool {
         a.hasPrefix(b) || b.hasPrefix(a)
+    }
+}
+
+/// Verifies whether same-size, similarly-named files are true byte-for-byte
+/// duplicates, since matching size and name prefix alone can coincidentally
+/// group unrelated files.
+enum FileHasher {
+    /// SHA-256 hex digest of a file's contents, read in chunks so large files
+    /// don't need to be loaded into memory all at once. Returns nil if the
+    /// file can't be read.
+    static func sha256(of url: URL) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+
+        var hasher = SHA256()
+        while let chunk = try? handle.read(upToCount: 1_048_576), !chunk.isEmpty {
+            hasher.update(data: chunk)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 }
