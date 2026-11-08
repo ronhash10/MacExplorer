@@ -68,6 +68,11 @@ struct PreviewPane: View {
                             Text("Size:").foregroundStyle(.secondary)
                             Text(item.formattedSize)
                         }
+                    } else {
+                        GridRow {
+                            Text("Contains:").foregroundStyle(.secondary)
+                            FolderStatsView(folderURL: item.url)
+                        }
                     }
                     GridRow {
                         Text("Modified:").foregroundStyle(.secondary)
@@ -121,6 +126,41 @@ struct PreviewPane: View {
         }
         .padding(.top, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Shows recursive file count + total size for a selected folder.
+/// Computed on a background task; cancelled and recomputed when the folder changes.
+struct FolderStatsView: View {
+    let folderURL: URL
+    @Environment(AppState.self) private var appState
+    @State private var stats: (fileCount: Int, totalSize: Int64)?
+
+    var body: some View {
+        Group {
+            if let stats {
+                Text("\(stats.fileCount) file\(stats.fileCount == 1 ? "" : "s") · \(ByteCountFormatter.string(fromByteCount: stats.totalSize, countStyle: .file))")
+            } else {
+                HStack(spacing: 4) {
+                    ProgressView().controlSize(.small)
+                    Text("Calculating…")
+                }
+                .foregroundStyle(.secondary)
+            }
+        }
+        .task(id: folderURL) {
+            stats = nil
+            let service = appState.fileService
+            let showHidden = appState.showHiddenFiles
+            let result = await withCheckedContinuation { (continuation: CheckedContinuation<(fileCount: Int, totalSize: Int64), Never>) in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    continuation.resume(returning: service.folderStatistics(at: folderURL, showHidden: showHidden))
+                }
+            }
+            // Discard the result if a newer scan superseded this one while we were waiting.
+            guard !Task.isCancelled else { return }
+            stats = result
+        }
     }
 }
 

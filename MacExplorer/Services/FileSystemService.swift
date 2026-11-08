@@ -46,6 +46,29 @@ final class FileSystemService {
         return resultURL as URL?
     }
 
+    /// Recursively compute file count and total size of a folder's contents.
+    func folderStatistics(at url: URL, showHidden: Bool) -> (fileCount: Int, totalSize: Int64) {
+        var fileCount = 0
+        var totalSize: Int64 = 0
+
+        guard let enumerator = fileManager.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey],
+            options: showHidden ? [] : [.skipsHiddenFiles]
+        ) else {
+            return (0, 0)
+        }
+
+        while let itemURL = enumerator.nextObject() as? URL {
+            let values = try? itemURL.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
+            guard values?.isDirectory != true else { continue }
+            fileCount += 1
+            totalSize += Int64(values?.fileSize ?? 0)
+        }
+
+        return (fileCount, totalSize)
+    }
+
     /// Invisible metadata files that don't count as "real" content.
     private static let ignoredFiles: Set<String> = [".DS_Store", ".localized", "Thumbs.db"]
 

@@ -5,6 +5,7 @@ struct BreadcrumbBar: View {
     @Environment(AppState.self) private var appState
     @Bindable var tab: TabState
     @State private var searchText: String = ""
+    @State private var showingDuplicateFinder = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -91,6 +92,13 @@ struct BreadcrumbBar: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+
+                Button(action: { showingDuplicateFinder = true }) {
+                    Image(systemName: "doc.on.doc")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("Find Duplicate Files")
             }
 
             // Search field (recursive)
@@ -115,5 +123,8 @@ struct BreadcrumbBar: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .background(.bar)
+        .sheet(isPresented: $showingDuplicateFinder) {
+            DuplicateFinderView(tab: tab)
+        }
     }
 }

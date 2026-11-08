@@ -11,6 +11,7 @@ final class FileItem: Identifiable, Hashable, Transferable {
     let isDirectory: Bool
     let size: Int64
     let dateModified: Date
+    let dateCreated: Date
     let kind: String
     let icon: NSImage
     let isEmptyFolder: Bool
@@ -28,7 +29,7 @@ final class FileItem: Identifiable, Hashable, Transferable {
 
         let resourceValues = try? url.resourceValues(forKeys: [
             .isDirectoryKey, .isPackageKey, .fileSizeKey, .contentModificationDateKey,
-            .localizedTypeDescriptionKey, .effectiveIconKey
+            .creationDateKey, .localizedTypeDescriptionKey, .effectiveIconKey
         ])
 
         let isDir = resourceValues?.isDirectory ?? false
@@ -37,6 +38,7 @@ final class FileItem: Identifiable, Hashable, Transferable {
         self.isDirectory = isDir && !isPackage
         self.size = Int64(resourceValues?.fileSize ?? 0)
         self.dateModified = resourceValues?.contentModificationDate ?? Date.distantPast
+        self.dateCreated = resourceValues?.creationDate ?? Date.distantPast
         self.kind = resourceValues?.localizedTypeDescription ?? (self.isDirectory ? "Folder" : "Document")
         self.icon = (resourceValues?.effectiveIcon as? NSImage) ?? NSWorkspace.shared.icon(for: .data)
 
@@ -65,6 +67,10 @@ final class FileItem: Identifiable, Hashable, Transferable {
 
     var formattedDate: String {
         Self.dateFormatter.string(from: dateModified)
+    }
+
+    var formattedCreatedDate: String {
+        Self.dateFormatter.string(from: dateCreated)
     }
 
     private static let dateFormatter: DateFormatter = {
