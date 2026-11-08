@@ -9,12 +9,22 @@ final class FileItem: Identifiable, Hashable, Transferable {
     let name: String
     let url: URL
     let isDirectory: Bool
+    /// True for bundles like `.app` — directories on disk that are treated as a
+    /// single file. Their `fileSizeKey` resource value is meaningless (it's a
+    /// directory underneath), so they need the same recursive size as folders.
+    let isPackage: Bool
     let size: Int64
     let dateModified: Date
     let dateCreated: Date
     let kind: String
     let icon: NSImage
     let isEmptyFolder: Bool
+
+    /// Recursive content size for directories, filled in lazily by the file list
+    /// (directories report 0 for their own `fileSize` resource value, which isn't
+    /// useful). `nil` until computed.
+    var folderSize: Int64?
+    var isComputingFolderSize = false
 
     static var transferRepresentation: some TransferRepresentation {
         ProxyRepresentation { item in
@@ -36,6 +46,7 @@ final class FileItem: Identifiable, Hashable, Transferable {
         let isPackage = resourceValues?.isPackage ?? false
         // .app bundles and other packages are directories but should be treated as files
         self.isDirectory = isDir && !isPackage
+        self.isPackage = isDir && isPackage
         self.size = Int64(resourceValues?.fileSize ?? 0)
         self.dateModified = resourceValues?.contentModificationDate ?? Date.distantPast
         self.dateCreated = resourceValues?.creationDate ?? Date.distantPast
@@ -60,8 +71,24 @@ final class FileItem: Identifiable, Hashable, Transferable {
         hasher.combine(id)
     }
 
+    /// True for anything whose size comes from `folderSize` (a recursive scan)
+    /// rather than the raw `size` resource value: directories, and packages like
+    /// `.app` bundles that are directories underneath despite acting like files.
+    var usesFolderSize: Bool { isDirectory || isPackage }
+
+    /// Value the Size column sorts on: a directory's (or package's) computed
+    /// content size once known (0 until then), or a file's actual size. `size`
+    /// itself stays the raw filesystem entry size, which is near-zero and
+    /// meaningless for directories.
+    var sizeForSorting: Int64 {
+        usesFolderSize ? (folderSize ?? 0) : size
+    }
+
     var formattedSize: String {
-        guard !isDirectory else { return "—" }
+        if usesFolderSize {
+            guard let folderSize else { return "—" }
+            return ByteCountFormatter.string(fromByteCount: folderSize, countStyle: .file)
+        }
         return ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
     }
 

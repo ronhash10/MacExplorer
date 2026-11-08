@@ -9,6 +9,9 @@ final class TabState: Identifiable {
     var currentPath: URL
     var selectedItems: Set<FileItem.ID> = []
     var items: [FileItem] = []
+    /// Bumped every time `items` is reloaded from disk (not just reordered), so
+    /// observers like the folder-size scan can tell a fresh listing from a sort.
+    var itemsGeneration = 0
     var sortOrder: [KeyPathComparator<FileItem>] = [
         KeyPathComparator(\.name, order: .forward)
     ]

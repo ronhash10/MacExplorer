@@ -47,7 +47,11 @@ final class FileSystemService {
     }
 
     /// Recursively compute file count and total size of a folder's contents.
-    func folderStatistics(at url: URL, showHidden: Bool) -> (fileCount: Int, totalSize: Int64) {
+    /// `isCancelled` is polled every iteration so a caller bridging this onto a
+    /// Swift Task (which this GCD-bound enumeration otherwise ignores entirely)
+    /// can stop a scan for a folder the user has already navigated away from,
+    /// instead of it running to completion and competing with newer scans.
+    func folderStatistics(at url: URL, showHidden: Bool, isCancelled: @escaping () -> Bool = { false }) -> (fileCount: Int, totalSize: Int64) {
         var fileCount = 0
         var totalSize: Int64 = 0
 
@@ -60,6 +64,7 @@ final class FileSystemService {
         }
 
         while let itemURL = enumerator.nextObject() as? URL {
+            if isCancelled() { break }
             let values = try? itemURL.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
             guard values?.isDirectory != true else { continue }
             fileCount += 1

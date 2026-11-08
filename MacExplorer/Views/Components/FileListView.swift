@@ -1,5 +1,14 @@
 import SwiftUI
 
+/// Identifies one directory listing for the folder-size scan's `.task(id:)`.
+/// Pairs the path with `itemsGeneration` so a same-folder refresh (e.g. after a
+/// delete) is recognized as a new listing, while a mere re-sort of `tab.items`
+/// isn't, which would otherwise restart the scan from scratch repeatedly.
+private struct FolderScanKey: Equatable {
+    let path: URL
+    let generation: Int
+}
+
 /// Sortable table view displaying directory contents with folders always on top.
 struct FileListView: View {
     @Environment(AppState.self) private var appState
@@ -30,7 +39,15 @@ struct FileListView: View {
             get: { tab.sortOrder },
             set: { newOrder in
                 tab.sortOrder = newOrder
-                sortItems()
+                // Column-header clicks arrive through an NSTableView delegate
+                // callback; reassigning `tab.items` synchronously from inside it
+                // pushes a Table reload back into that same still-executing
+                // callback ("reentrant operation" — and it corrupts the table's
+                // state for good, not just that one frame). Defer to the next
+                // run-loop turn so the callback has already returned.
+                DispatchQueue.main.async {
+                    sortItems()
+                }
             }
         )) {
             TableColumn("Name", sortUsing: KeyPathComparator(\.name)) { item in
@@ -65,8 +82,8 @@ struct FileListView: View {
             }
             .width(min: 200, ideal: 300)
 
-            TableColumn("Size", sortUsing: KeyPathComparator(\.size)) { item in
-                Text(item.formattedSize)
+            TableColumn("Size", sortUsing: KeyPathComparator(\.sizeForSorting)) { item in
+                SizeCell(item: item)
                     .foregroundStyle(.secondary)
             }
             .width(min: 60, ideal: 80)
@@ -98,6 +115,9 @@ struct FileListView: View {
                 }
             }
         }
+        .task(id: FolderScanKey(path: tab.currentPath, generation: tab.itemsGeneration)) {
+            await computeFolderSizes()
+        }
         .contextMenu {
             backgroundContextMenu()
         }
@@ -117,6 +137,7 @@ struct FileListView: View {
         .background(TableScrollHelper(scrollToID: $scrollToID, items: filteredFolders + filteredFiles))
         .onChange(of: tab.currentPath) {
             appState.refreshCurrentTab()
+            appState.rebuildWatcher()
         }
         .onChange(of: appState.pendingRenameFolder) { _, folderName in
             guard let folderName else { return }
@@ -192,6 +213,71 @@ struct FileListView: View {
         folders.sort(using: order)
         files.sort(using: order)
         tab.items = folders + files
+    }
+
+    // MARK: - Folder sizes
+
+    /// Computes every subfolder's recursive content size for the current directory,
+    /// regardless of which rows are on screen, so they're known once (for sorting
+    /// by size) and never recomputed just from scrolling. Tied to `tab.currentPath`:
+    /// cancelled when navigating away, and starts fresh on return since the folder's
+    /// contents may have changed since.
+    ///
+    /// Scanned with bounded concurrency rather than one at a time: a single huge
+    /// folder (e.g. a cache directory with hundreds of thousands of files) would
+    /// otherwise block every folder listed after it from ever getting a size.
+    private func computeFolderSizes() async {
+        let service = appState.fileService
+        let showHidden = appState.showHiddenFiles
+        let folders = tab.items.filter { $0.usesFolderSize && $0.folderSize == nil }
+        guard !folders.isEmpty else { return }
+
+        // Reassigning `tab.items` is what makes the Table redraw — but doing
+        // that repeatedly (even coalesced to a few times a second) collided
+        // with AppKit's own internal NSTableView update/layout machinery
+        // ("reentrant operation" warning), which corrupted the table's
+        // rendering state until the app was restarted — not something a
+        // longer delay fixed, just something a lower rate made rarer. So
+        // `tab.items` is touched exactly once here, after every size is
+        // known; individual FileItem properties are still updated live as
+        // each scan finishes, which SwiftUI's Observation tracking reflects
+        // in already-visible cells without needing the array itself to change.
+        let maxConcurrentScans = 4
+        await withTaskGroup(of: Void.self) { group in
+            var remaining = folders.makeIterator()
+
+            func scanNext() {
+                guard let folder = remaining.next() else { return }
+                group.addTask { @MainActor in
+                    guard !Task.isCancelled else { return }
+                    folder.isComputingFolderSize = true
+                    let url = folder.url
+                    // DispatchQueue.global work is invisible to Swift's cancellation
+                    // machinery, so without this bridge a scan for a folder the user
+                    // has already left keeps running to completion in the background,
+                    // competing with the scan for whatever folder is open now.
+                    let cancelFlag = CancelFlag()
+                    let result = await withTaskCancellationHandler {
+                        await withCheckedContinuation { (continuation: CheckedContinuation<(fileCount: Int, totalSize: Int64), Never>) in
+                            DispatchQueue.global(qos: .utility).async {
+                                continuation.resume(returning: service.folderStatistics(
+                                    at: url, showHidden: showHidden, isCancelled: { cancelFlag.isCancelled }
+                                ))
+                            }
+                        }
+                    } onCancel: {
+                        cancelFlag.cancel()
+                    }
+                    guard !Task.isCancelled else { return }
+                    folder.folderSize = result.totalSize
+                    folder.isComputingFolderSize = false
+                }
+            }
+
+            for _ in 0..<maxConcurrentScans { scanNext() }
+            for await _ in group { scanNext() }
+        }
+        sortItems()
     }
 
     private var selectedFileItems: [FileItem] {
@@ -361,6 +447,20 @@ struct FileListView: View {
 
         Button("Move to Trash (\(items.count) item\(items.count == 1 ? "" : "s"))", role: .destructive) {
             trashAndSelectNext(items)
+        }
+    }
+}
+
+/// Shows a file's size, or a folder's recursive content size once
+/// `FileListView.computeFolderSizes()` has filled it in.
+struct SizeCell: View {
+    let item: FileItem
+
+    var body: some View {
+        if item.usesFolderSize && item.isComputingFolderSize {
+            ProgressView().controlSize(.mini)
+        } else {
+            Text(item.formattedSize)
         }
     }
 }

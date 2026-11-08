@@ -329,10 +329,32 @@ final class AppState {
     func refreshCurrentTab() {
         guard let tab = currentTab else { return }
         if tab.isSearchTab { return }
+        // contentsOfDirectory builds fresh FileItem instances, so a refresh
+        // triggered by an unrelated change (e.g. deleting a file elsewhere in
+        // this folder) would otherwise discard every sibling folder's already-
+        // computed size and force the whole directory to be rescanned.
+        let previousFolderSizes = Dictionary(uniqueKeysWithValues: tab.items.compactMap { item in
+            item.folderSize.map { (item.id, $0) }
+        })
+        // A refresh fires constantly for reasons that don't change which items are
+        // here at all: the file watcher's own first callback right after it's set
+        // up on navigation, or real but irrelevant activity elsewhere in the
+        // folder (e.g. `.git/objects` churns on every git operation). The folder-
+        // size scan is keyed on this generation and restarts from scratch whenever
+        // it changes, so bumping it unconditionally meant a busy folder's scan
+        // could be cancelled and restarted forever, never finishing. Only bump it
+        // when the actual set of items changed.
+        let previousIDs = Set(tab.items.map(\.id))
         tab.items = fileService.contentsOfDirectory(
             at: tab.currentPath,
             showHidden: showHiddenFiles
         )
+        for item in tab.items where item.isDirectory {
+            item.folderSize = previousFolderSizes[item.id]
+        }
+        if Set(tab.items.map(\.id)) != previousIDs {
+            tab.itemsGeneration += 1
+        }
     }
 
     /// Create a search tab and start async search with streaming results.
@@ -381,12 +403,14 @@ final class AppState {
 
     func navigate(to url: URL) {
         guard let tab = currentTab else { return }
+        // The actual refresh/watcher rebuild happens in FileListView's
+        // .onChange(of: tab.currentPath) — the single trigger every navigation
+        // path (this, back/forward, breadcrumb clicks) shares. Doing it here
+        // too, as this used to, fired it twice per navigation: two near-
+        // simultaneous Table reloads were enough to land one inside the
+        // other's still-executing AppKit delegate callback, corrupting the
+        // table's internal state (a "reentrant operation" warning) until restart.
         tab.navigate(to: url)
-        // Defer filesystem read to next run loop so UI updates instantly
-        DispatchQueue.main.async { [self] in
-            refreshCurrentTab()
-            rebuildWatcher()
-        }
     }
 }
 

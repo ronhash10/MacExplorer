@@ -13,7 +13,6 @@ struct BreadcrumbBar: View {
                 // Back / Forward buttons
                 Button(action: {
                     tab.goBack()
-                    appState.refreshCurrentTab()
                 }) {
                     Image(systemName: "arrow.left")
                         .font(.system(size: 12, weight: .medium))
@@ -23,7 +22,6 @@ struct BreadcrumbBar: View {
 
                 Button(action: {
                     tab.goForward()
-                    appState.refreshCurrentTab()
                 }) {
                     Image(systemName: "arrow.right")
                         .font(.system(size: 12, weight: .medium))
